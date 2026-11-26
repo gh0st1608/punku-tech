@@ -16,9 +16,85 @@ import type {
   OpenCodeGateway,
   OpenCodeHealth,
   OpenCodeSession,
+  OpenCodeSessionEvent,
 } from "../application/opencode.gateway";
 
 type AgentListResponse = { data: AgentInfo[] };
+
+const sessionEventTypes = [
+  "session.execution.started",
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+  "session.step.started",
+  "session.step.ended",
+  "session.step.failed",
+  "session.tool.called",
+  "session.tool.success",
+  "session.tool.failed",
+  "session.usage.updated",
+  "permission.asked",
+  "permission.replied",
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseSseData(frame: string): unknown | null {
+  const data = frame
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+  if (!data) return null;
+
+  try {
+    return JSON.parse(data) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function readSessionEvent(value: unknown): {
+  id: string;
+  type: string;
+  created: number;
+  sessionId: string;
+} | null {
+  if (!isRecord(value) || !isRecord(value.data)) return null;
+  const session = value.data.sessionID;
+  const isValidEvent =
+    typeof value.id === "string" &&
+    typeof value.type === "string" &&
+    sessionEventTypes.includes(value.type) &&
+    typeof value.created === "number" &&
+    Number.isFinite(value.created) &&
+    typeof session === "string";
+  if (!isValidEvent) return null;
+
+  return {
+    id: value.id as string,
+    type: value.type as string,
+    created: value.created as number,
+    sessionId: session as string,
+  };
+}
+
+function parseSessionEvent(frame: string): OpenCodeSessionEvent | null {
+  const event = readSessionEvent(parseSseData(frame));
+  if (!event) return null;
+
+  const createdAt = new Date(event.created);
+  if (Number.isNaN(createdAt.getTime())) return null;
+
+  return {
+    id: event.id,
+    type: event.type,
+    createdAt,
+    sessionId: event.sessionId,
+  };
+}
 
 @Injectable()
 export class OpenCodeApiAdapter implements OpenCodeGateway {
@@ -119,6 +195,55 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
     );
     const latestAssistant = response.data.find((message) => message.type === "assistant");
     return latestAssistant ? { finish: latestAssistant.finish ?? null } : null;
+  }
+
+  async *subscribeSessionEvents(signal: AbortSignal): AsyncIterable<OpenCodeSessionEvent> {
+    const query = new URLSearchParams();
+    for (const eventType of sessionEventTypes) query.append("types", eventType);
+
+    const headers = new Headers({ accept: "text/event-stream" });
+    if (this.environment.opencodePassword) {
+      const credentials = Buffer.from(`opencode:${this.environment.opencodePassword}`).toString(
+        "base64",
+      );
+      headers.set("authorization", `Basic ${credentials}`);
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(
+        new URL(`/api/event?${query.toString()}`, `${this.environment.opencodeBaseUrl}/`),
+        {
+          headers,
+          signal,
+        },
+      );
+    } catch {
+      if (signal.aborted) return;
+      throw new OpenCodeUnavailableError();
+    }
+    if (!response.ok || !response.body) throw new OpenCodeUnavailableError();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (!signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = /\r?\n\r?\n/.exec(buffer);
+        while (boundary && boundary.index !== undefined) {
+          const frame = buffer.slice(0, boundary.index);
+          buffer = buffer.slice(boundary.index + boundary[0].length);
+          const event = parseSessionEvent(frame);
+          if (event) yield event;
+          boundary = /\r?\n\r?\n/.exec(buffer);
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   private async request<T>(path: string, init: RequestInit = {}, timeoutMs = 5000): Promise<T> {

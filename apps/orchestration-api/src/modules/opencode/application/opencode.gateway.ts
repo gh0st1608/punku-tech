@@ -25,6 +25,13 @@ export type OpenCodeAssistantResult = {
   finish: string | null;
 };
 
+export type OpenCodeSessionEvent = {
+  id: string;
+  type: string;
+  createdAt: Date;
+  sessionId: string;
+};
+
 export interface OpenCodeGateway {
   health(): Promise<OpenCodeHealth>;
   listAgents(directory?: string): Promise<OpenCodeAgent[]>;
@@ -39,4 +46,5 @@ export interface OpenCodeGateway {
   wait(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<boolean>;
   latestAssistantResult(sessionId: string): Promise<OpenCodeAssistantResult | null>;
+  subscribeSessionEvents(signal: AbortSignal): AsyncIterable<OpenCodeSessionEvent>;
 }

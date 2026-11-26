@@ -12,12 +12,19 @@ import { OpenCodeModule } from "../opencode/opencode.module";
 import { OPENCODE_GATEWAY } from "../opencode/application/opencode.gateway";
 import type { OpenCodeGateway } from "../opencode/application/opencode.gateway";
 import { GitWorktreeManager } from "./infrastructure/git-worktree.manager";
+import { OpenCodeSessionEventConsumer } from "./application/opencode-session-event.consumer";
 
 @Module({
   imports: [PrismaModule, OpenCodeModule],
   controllers: [ExecutionsController],
   providers: [
     PrismaExecutionsRepository,
+    {
+      provide: OpenCodeSessionEventConsumer,
+      useFactory: (repository: ExecutionsRepository, openCode: OpenCodeGateway) =>
+        new OpenCodeSessionEventConsumer(repository, openCode),
+      inject: [EXECUTIONS_REPOSITORY, OPENCODE_GATEWAY],
+    },
     {
       provide: GitWorktreeManager,
       useFactory: (environment: AppEnvironment) => new GitWorktreeManager(environment),

@@ -73,11 +73,13 @@ model Event {
   agentId       String?   @map("agent_id")
   taskId        String?   @db.Uuid @map("task_id")
   sessionId     String?   @map("session_id")
+  externalEventId String? @unique @map("external_event_id")
   payload       Json      @default("{}") @map("payload_json")
   schemaVersion Int       @default(1) @map("schema_version")
   execution     Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
 
   @@index([executionId, occurredAt])
+  @@index([sessionId])
   @@map("events")
 }
 

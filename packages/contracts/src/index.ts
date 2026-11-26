@@ -33,6 +33,7 @@ export type AgentId = (typeof agentIds)[number];
 
 export interface DomainEvent<TPayload = Record<string, unknown>> {
   eventId: string;
+  sourceEventId?: string;
   executionId: string;
   eventType: string;
   occurredAt: string;

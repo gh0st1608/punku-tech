@@ -10,6 +10,7 @@ import type {
   UsageRecordForSummary,
 } from "@aief/contracts";
 import { agentIds } from "@aief/contracts";
+import type { OpenCodeSessionEvent } from "../../opencode/application/opencode.gateway";
 import type { Prisma } from "@prisma/client";
 import { ExecutionStatus, TaskStatus } from "@prisma/client";
 import type { PrismaService } from "../../prisma/prisma.service";
@@ -76,6 +77,7 @@ function mapEvent(row: Prisma.EventGetPayload<Prisma.EventDefaultArgs>): DomainE
     payload: safePayload,
   };
 
+  if (row.externalEventId) event.sourceEventId = row.externalEventId;
   if (row.agentId && agentIds.includes(row.agentId as AgentId))
     event.agentId = row.agentId as AgentId;
   if (row.taskId) event.taskId = row.taskId;
@@ -437,6 +439,31 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
       orderBy: { startedAt: "asc" },
     });
     return rows.map((row) => row.id);
+  }
+
+  async persistSessionEvent(event: OpenCodeSessionEvent): Promise<void> {
+    const task = await this.prisma.task.findFirst({
+      where: { sessionId: event.sessionId },
+      select: { id: true, executionId: true, agentId: true },
+    });
+    if (!task) return;
+
+    await this.prisma.event.createMany({
+      data: [
+        {
+          executionId: task.executionId,
+          eventType: event.type,
+          occurredAt: event.createdAt,
+          source: "opencode",
+          agentId: task.agentId,
+          taskId: task.id,
+          sessionId: event.sessionId,
+          externalEventId: event.id,
+          payload: {},
+        },
+      ],
+      skipDuplicates: true,
+    });
   }
 
   async failPlanningIfActive(id: string, finishedAt: Date): Promise<void> {
