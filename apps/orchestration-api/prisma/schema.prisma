@@ -10,6 +10,7 @@ datasource db {
 enum ExecutionStatus {
   CREATED
   PLANNING
+  PLANNED
   RUNNING
   VALIDATING
   COMPLETED
@@ -45,9 +46,11 @@ model Execution {
 model Task {
   id          String     @id @default(uuid()) @db.Uuid
   executionId String     @db.Uuid @map("execution_id")
+  sequence    Int        @default(0)
   agentId     String     @map("agent_id")
   title       String
   description String     @db.Text
+  acceptanceCriteria Json @default("[]") @map("acceptance_criteria_json")
   status      TaskStatus @default(PENDING)
   dependsOn   Json       @default("[]") @map("depends_on_json")
   sessionId   String?    @map("session_id")
@@ -56,6 +59,7 @@ model Task {
   execution   Execution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
 
   @@index([executionId, status])
+  @@unique([executionId, sequence])
   @@map("tasks")
 }
 

@@ -1,14 +1,30 @@
 import { Injectable } from "@nestjs/common";
-import { AgentId, agentIds, CreateExecutionRequest, DomainEvent, ExecutionDetails, ExecutionRecord, TaskRecord, UsageRecordForSummary } from "@aief/contracts";
-import { ExecutionStatus, Prisma } from "@prisma/client";
-import { PrismaService } from "../../prisma/prisma.service";
-import { EventCursor, ExecutionsRepository } from "../application/executions.repository";
+import type {
+  AgentId,
+  CreateExecutionRequest,
+  DomainEvent,
+  ExecutionDetails,
+  ExecutionRecord,
+  PlannedTask,
+  TaskRecord,
+  UsageRecordForSummary,
+} from "@aief/contracts";
+import { agentIds } from "@aief/contracts";
+import type { Prisma } from "@prisma/client";
+import { ExecutionStatus } from "@prisma/client";
+import type { PrismaService } from "../../prisma/prisma.service";
+import type { EventCursor, ExecutionsRepository } from "../application/executions.repository";
+
+const EVENT_SOURCE = "orchestration-api";
+const LOCAL_USER = "local-user";
 
 function toIso(value: Date | null): string | null {
   return value?.toISOString() ?? null;
 }
 
-function mapExecution(row: Prisma.ExecutionGetPayload<{}>): ExecutionRecord {
+function mapExecution(
+  row: Prisma.ExecutionGetPayload<Prisma.ExecutionDefaultArgs>,
+): ExecutionRecord {
   return {
     id: row.id,
     name: row.name,
@@ -21,16 +37,21 @@ function mapExecution(row: Prisma.ExecutionGetPayload<{}>): ExecutionRecord {
   };
 }
 
-function mapTask(row: Prisma.TaskGetPayload<{}>): TaskRecord {
+function mapTask(row: Prisma.TaskGetPayload<Prisma.TaskDefaultArgs>): TaskRecord {
   const dependsOn = Array.isArray(row.dependsOn)
     ? row.dependsOn.filter((value): value is string => typeof value === "string")
+    : [];
+  const acceptanceCriteria = Array.isArray(row.acceptanceCriteria)
+    ? row.acceptanceCriteria.filter((value): value is string => typeof value === "string")
     : [];
 
   return {
     id: row.id,
+    sequence: row.sequence,
     agentId: row.agentId,
     title: row.title,
     description: row.description,
+    acceptanceCriteria,
     status: row.status as TaskRecord["status"],
     dependsOn,
     sessionId: row.sessionId,
@@ -39,11 +60,12 @@ function mapTask(row: Prisma.TaskGetPayload<{}>): TaskRecord {
   };
 }
 
-function mapEvent(row: Prisma.EventGetPayload<{}>): DomainEvent {
+function mapEvent(row: Prisma.EventGetPayload<Prisma.EventDefaultArgs>): DomainEvent {
   const payload = row.payload;
-  const safePayload = payload !== null && typeof payload === "object" && !Array.isArray(payload)
-    ? payload as Record<string, unknown>
-    : { value: payload };
+  const safePayload =
+    payload !== null && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : { value: payload };
   const event: DomainEvent = {
     eventId: row.id,
     executionId: row.executionId,
@@ -54,7 +76,8 @@ function mapEvent(row: Prisma.EventGetPayload<{}>): DomainEvent {
     payload: safePayload,
   };
 
-  if (row.agentId && agentIds.includes(row.agentId as AgentId)) event.agentId = row.agentId as AgentId;
+  if (row.agentId && agentIds.includes(row.agentId as AgentId))
+    event.agentId = row.agentId as AgentId;
   if (row.taskId) event.taskId = row.taskId;
   if (row.sessionId) event.sessionId = row.sessionId;
   return event;
@@ -77,8 +100,8 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
         data: {
           executionId: execution.id,
           eventType: "EXECUTION_CREATED",
-          source: "orchestration-api",
-          payload: { requestedBy: "local-user" },
+          source: EVENT_SOURCE,
+          payload: { requestedBy: LOCAL_USER },
         },
       });
       return execution;
@@ -88,7 +111,10 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
   }
 
   async list(): Promise<ExecutionRecord[]> {
-    const rows = await this.prisma.execution.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
+    const rows = await this.prisma.execution.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
     return rows.map(mapExecution);
   }
 
@@ -96,19 +122,23 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     const row = await this.prisma.execution.findUnique({
       where: { id },
       include: {
-        tasks: { orderBy: { title: "asc" } },
+        tasks: { orderBy: { sequence: "asc" } },
         events: { orderBy: [{ occurredAt: "asc" }, { id: "asc" }], take: 500 },
       },
     });
     if (!row) return null;
-    return { ...mapExecution(row), tasks: row.tasks.map(mapTask), events: row.events.map(mapEvent) };
+    return {
+      ...mapExecution(row),
+      tasks: row.tasks.map(mapTask),
+      events: row.events.map(mapEvent),
+    };
   }
 
   async exists(id: string): Promise<boolean> {
     return (await this.prisma.execution.count({ where: { id } })) > 0;
   }
 
-  async startIfCreated(id: string, startedAt: Date): Promise<ExecutionRecord | null> {
+  async beginPlanningIfCreated(id: string, startedAt: Date): Promise<ExecutionRecord | null> {
     const row = await this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({
         where: { id, status: ExecutionStatus.CREATED },
@@ -117,7 +147,12 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
       if (result.count === 0) return null;
 
       await tx.event.create({
-        data: { executionId: id, eventType: "EXECUTION_PLANNING_REQUESTED", source: "orchestration-api", payload: {} },
+        data: {
+          executionId: id,
+          eventType: "EXECUTION_PLANNING_REQUESTED",
+          source: EVENT_SOURCE,
+          payload: {},
+        },
       });
       return tx.execution.findUniqueOrThrow({ where: { id } });
     });
@@ -125,19 +160,94 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     return row ? mapExecution(row) : null;
   }
 
+  async persistPlan(
+    id: string,
+    tasks: PlannedTask[],
+    sessionId: string,
+  ): Promise<ExecutionDetails | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.execution.updateMany({
+        where: { id, status: ExecutionStatus.PLANNING },
+        data: { status: ExecutionStatus.PLANNED },
+      });
+      if (result.count === 0) return null;
+
+      await tx.task.createMany({
+        data: tasks.map((task) => ({
+          id: task.id,
+          executionId: id,
+          sequence: task.sequence,
+          agentId: task.agentId,
+          title: task.title,
+          description: task.description,
+          acceptanceCriteria: task.acceptanceCriteria,
+          dependsOn: task.dependsOn,
+        })),
+      });
+      await tx.event.create({
+        data: {
+          executionId: id,
+          eventType: "EXECUTION_PLAN_CREATED",
+          source: EVENT_SOURCE,
+          sessionId,
+          payload: { taskCount: tasks.length, taskIds: tasks.map((task) => task.id) },
+        },
+      });
+
+      const row = await tx.execution.findUniqueOrThrow({
+        where: { id },
+        include: {
+          tasks: { orderBy: { sequence: "asc" } },
+          events: { orderBy: [{ occurredAt: "asc" }, { id: "asc" }], take: 500 },
+        },
+      });
+      return {
+        ...mapExecution(row),
+        tasks: row.tasks.map(mapTask),
+        events: row.events.map(mapEvent),
+      };
+    });
+  }
+
+  async failPlanningIfActive(id: string, finishedAt: Date): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.execution.updateMany({
+        where: { id, status: ExecutionStatus.PLANNING },
+        data: { status: ExecutionStatus.FAILED, finishedAt },
+      });
+      if (result.count === 0) return;
+
+      await tx.event.create({
+        data: {
+          executionId: id,
+          eventType: "EXECUTION_PLANNING_FAILED",
+          source: EVENT_SOURCE,
+          payload: { failure: "planning_failed" },
+        },
+      });
+    });
+  }
+
   async cancelIfActive(id: string, finishedAt: Date): Promise<ExecutionRecord | null> {
     const row = await this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({
         where: {
           id,
-          status: { notIn: [ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED] },
+          status: {
+            notIn: [ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED],
+          },
         },
         data: { status: ExecutionStatus.CANCELLED, finishedAt },
       });
       if (result.count === 0) return null;
 
       await tx.event.create({
-        data: { executionId: id, eventType: "EXECUTION_CANCELLED", source: "orchestration-api", payload: {} },
+        data: {
+          executionId: id,
+          eventType: "EXECUTION_CANCELLED",
+          source: EVENT_SOURCE,
+          payload: {},
+        },
       });
       return tx.execution.findUniqueOrThrow({ where: { id } });
     });
@@ -157,10 +267,7 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     const where: Prisma.EventWhereInput = { executionId: id };
     if (cursor) {
       const occurredAt = new Date(cursor.occurredAt);
-      where.OR = [
-        { occurredAt: { gt: occurredAt } },
-        { occurredAt, id: { gt: cursor.eventId } },
-      ];
+      where.OR = [{ occurredAt: { gt: occurredAt } }, { occurredAt, id: { gt: cursor.eventId } }];
     }
 
     const rows = await this.prisma.event.findMany({

@@ -1,8 +1,9 @@
-import {
+import type {
   CreateExecutionRequest,
   DomainEvent,
   ExecutionDetails,
   ExecutionRecord,
+  PlannedTask,
   UsageRecordForSummary,
 } from "@aief/contracts";
 
@@ -18,7 +19,13 @@ export interface ExecutionsRepository {
   list(): Promise<ExecutionRecord[]>;
   findDetails(id: string): Promise<ExecutionDetails | null>;
   exists(id: string): Promise<boolean>;
-  startIfCreated(id: string, startedAt: Date): Promise<ExecutionRecord | null>;
+  beginPlanningIfCreated(id: string, startedAt: Date): Promise<ExecutionRecord | null>;
+  persistPlan(
+    id: string,
+    tasks: PlannedTask[],
+    sessionId: string,
+  ): Promise<ExecutionDetails | null>;
+  failPlanningIfActive(id: string, finishedAt: Date): Promise<void>;
   cancelIfActive(id: string, finishedAt: Date): Promise<ExecutionRecord | null>;
   findEventCursor(executionId: string, eventId: string): Promise<EventCursor | null>;
   listEvents(id: string, cursor: EventCursor | null, limit: number): Promise<DomainEvent[]>;
