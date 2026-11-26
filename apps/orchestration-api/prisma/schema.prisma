@@ -33,6 +33,7 @@ model Execution {
   requirement String         @db.Text
   status     ExecutionStatus @default(CREATED)
   budgetUsd  Decimal?        @db.Decimal(12, 6) @map("budget_usd")
+  workspacePath String?      @map("workspace_path") @db.Text
   startedAt  DateTime?       @map("started_at")
   finishedAt DateTime?       @map("finished_at")
   createdAt  DateTime        @default(now()) @map("created_at")

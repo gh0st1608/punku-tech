@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import { Logger } from "@nestjs/common";
 import type {
   CreateExecutionRequest,
   DomainEvent,
   ExecutionDetails,
   ExecutionRecord,
   PlannedTask,
+  TaskRecord,
   UsageSummary,
 } from "@aief/contracts";
 import { agentIds } from "@aief/contracts";
@@ -15,6 +18,8 @@ import { ExecutionNotFoundError } from "./execution-not-found.error";
 import { ExecutionPlanInvalidError } from "./execution-plan-invalid.error";
 import { ExecutionPlanningConflictError } from "./execution-planning-conflict.error";
 import type { EventCursor, ExecutionsRepository } from "./executions.repository";
+import type { GitWorktreeManager } from "../infrastructure/git-worktree.manager";
+import { ExecutionWorkspaceUnavailableError } from "./execution-workspace-unavailable.error";
 import { summarizeUsage } from "./usage-summary";
 
 type PlanDraftTask = {
@@ -124,10 +129,13 @@ function readPlan(text: string, availableAgentIds: Set<string>): PlanDraftTask[]
 }
 
 export class ExecutionsService {
+  private readonly logger = new Logger(ExecutionsService.name);
+
   constructor(
     private readonly repository: ExecutionsRepository,
     private readonly environment: AppEnvironment,
     private readonly openCode: OpenCodeGateway,
+    private readonly worktrees: GitWorktreeManager,
   ) {}
 
   create(input: CreateExecutionRequest): Promise<ExecutionRecord> {
@@ -201,9 +209,127 @@ export class ExecutionsService {
     }
   }
 
+  async start(id: string): Promise<ExecutionDetails> {
+    const execution = await this.get(id);
+    if (execution.status !== "PLANNED" || execution.tasks.length === 0) {
+      throw new ExecutionPlanningConflictError(
+        "Execution must have a saved plan before it can start.",
+      );
+    }
+
+    const workspacePath = resolve(this.environment.opencodeWorktreeRoot, id);
+    const started = await this.repository.startIfPlanned(id, workspacePath, new Date());
+    if (!started) throw new ExecutionPlanningConflictError("Execution has already been started.");
+
+    try {
+      await this.worktrees.create(id);
+    } catch {
+      await this.repository.failExecutionIfActive(id, new Date());
+      throw new ExecutionWorkspaceUnavailableError();
+    }
+
+    void this.executeTasks(id).catch(async () => {
+      await this.repository.failExecutionIfActive(id, new Date());
+      this.logger.error(`Task runner stopped unexpectedly for execution ${id}.`);
+    });
+    return this.get(id);
+  }
+
+  private async executeTasks(executionId: string): Promise<void> {
+    const workspacePath = await this.repository.workspacePath(executionId);
+    if (!workspacePath) throw new Error("Execution workspace is missing.");
+
+    while (true) {
+      const execution = await this.get(executionId);
+      if (execution.status !== "RUNNING") return;
+      const task = this.nextRunnableTask(execution.tasks);
+      if (!task) {
+        const hasPendingTasks = execution.tasks.some((item) => item.status === "PENDING");
+        if (hasPendingTasks) {
+          await this.repository.failExecutionIfActive(executionId, new Date());
+          return;
+        }
+        await this.repository.completeExecutionIfTasksDone(executionId, new Date());
+        return;
+      }
+      if (!(await this.executeTask(executionId, task, workspacePath))) return;
+    }
+  }
+
+  private nextRunnableTask(tasks: TaskRecord[]): TaskRecord | null {
+    return (
+      tasks
+        .filter((task) => task.status === "PENDING")
+        .sort((left, right) => left.sequence - right.sequence)
+        .find((candidate) =>
+          candidate.dependsOn.every((dependencyId) =>
+            tasks.some(
+              (dependency) => dependency.id === dependencyId && dependency.status === "COMPLETED",
+            ),
+          ),
+        ) ?? null
+    );
+  }
+
+  private async executeTask(
+    executionId: string,
+    task: TaskRecord,
+    workspacePath: string,
+  ): Promise<boolean> {
+    if (!(await this.repository.startTaskIfPending(executionId, task.id, new Date()))) return false;
+    const availableAgentIds = new Set(
+      (await this.openCode.listAgents(workspacePath)).map((agent) => agent.id),
+    );
+    if (!availableAgentIds.has(task.agentId)) {
+      await this.repository.failTaskAndExecution(executionId, task.id, new Date());
+      return false;
+    }
+
+    const session = await this.openCode.createSession({
+      title: `${task.agentId}: ${task.title}`,
+      agentId: task.agentId as (typeof agentIds)[number],
+      directory: workspacePath,
+    });
+    const attached = await this.repository.attachTaskSession(executionId, task.id, session.id);
+    if (!attached) {
+      await this.openCode.interrupt(session.id).catch(() => false);
+      return false;
+    }
+
+    await this.openCode.prompt(session.id, this.taskPrompt(task));
+    await this.openCode.wait(session.id);
+    const result = await this.openCode.latestAssistantResult(session.id);
+    if (result?.finish !== "stop") {
+      await this.repository.failTaskAndExecution(executionId, task.id, new Date());
+      return false;
+    }
+    return this.repository.completeTask(executionId, task.id, new Date());
+  }
+
+  private taskPrompt(task: TaskRecord): string {
+    return [
+      "Implement only this planned task in the supplied isolated workspace.",
+      "Respect the repository instructions and existing coding standards.",
+      "Do not deploy, publish, push, merge, or modify any other workspace.",
+      "Before finishing, review your changes against every acceptance criterion.",
+      `Task: ${task.title}`,
+      `Description: ${task.description}`,
+      `Acceptance criteria:\n${task.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
+    ].join("\n\n");
+  }
+
   async cancel(id: string): Promise<ExecutionRecord> {
     const cancelled = await this.repository.cancelIfActive(id, new Date());
-    return cancelled ?? this.getRecordOrThrow(id);
+    if (!cancelled) return this.getRecordOrThrow(id);
+    const interrupts = await Promise.allSettled(
+      cancelled.sessionIds.map((sessionId) => this.openCode.interrupt(sessionId)),
+    );
+    if (interrupts.some((result) => result.status === "rejected")) {
+      this.logger.warn(
+        `One or more OpenCode sessions could not be interrupted for execution ${id}.`,
+      );
+    }
+    return cancelled.execution;
   }
 
   async events(id: string): Promise<DomainEvent[]> {

@@ -21,9 +21,21 @@ export type OpenCodeSession = {
   agentId: string | null;
 };
 
+export type OpenCodeAssistantResult = {
+  finish: string | null;
+};
+
 export interface OpenCodeGateway {
   health(): Promise<OpenCodeHealth>;
-  listAgents(): Promise<OpenCodeAgent[]>;
-  createSession(input: { title: string; agentId: AgentId }): Promise<OpenCodeSession>;
+  listAgents(directory?: string): Promise<OpenCodeAgent[]>;
+  createSession(input: {
+    title: string;
+    agentId: AgentId;
+    directory?: string;
+  }): Promise<OpenCodeSession>;
   generate(sessionId: string, prompt: string): Promise<string>;
+  prompt(sessionId: string, prompt: string): Promise<void>;
+  wait(sessionId: string): Promise<void>;
+  interrupt(sessionId: string): Promise<boolean>;
+  latestAssistantResult(sessionId: string): Promise<OpenCodeAssistantResult | null>;
 }
