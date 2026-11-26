@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type {
   AgentInfo,
   ServerInfo,
+  SessionMessagesResponse,
   SessionGenerateOutput,
   SessionInfo,
 } from "@opencode/client" with {
@@ -41,8 +42,8 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
     }
   }
 
-  async listAgents(): Promise<OpenCodeAgent[]> {
-    const query = new URLSearchParams({ directory: this.environment.opencodeWorkspaceRoot });
+  async listAgents(directory = this.environment.opencodeWorkspaceRoot): Promise<OpenCodeAgent[]> {
+    const query = new URLSearchParams({ directory });
     const result = await this.request<AgentListResponse>(`/api/agent?${query.toString()}`);
     return result.data.map((agent) => ({
       id: agent.id,
@@ -52,13 +53,17 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
     }));
   }
 
-  async createSession(input: { title: string; agentId: AgentId }): Promise<OpenCodeSession> {
+  async createSession(input: {
+    title: string;
+    agentId: AgentId;
+    directory?: string;
+  }): Promise<OpenCodeSession> {
     const session = await this.request<SessionInfo>("/api/session", {
       method: "POST",
       body: JSON.stringify({
         title: input.title,
         agent: input.agentId,
-        location: { directory: this.environment.opencodeWorkspaceRoot },
+        location: { directory: input.directory ?? this.environment.opencodeWorkspaceRoot },
       }),
     });
     return {
@@ -76,7 +81,47 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
     return response.text;
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async prompt(sessionId: string, prompt: string): Promise<void> {
+    await this.request(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+      method: "POST",
+      body: JSON.stringify({ text: prompt }),
+    });
+  }
+
+  async hasPrompt(sessionId: string, prompt: string): Promise<boolean> {
+    const query = new URLSearchParams({ limit: "50", order: "desc", type: "user" });
+    const response = await this.request<SessionMessagesResponse>(
+      `/api/session/${encodeURIComponent(sessionId)}/message?${query.toString()}`,
+    );
+    return response.data.some((message) => message.type === "user" && message.text === prompt);
+  }
+
+  async wait(sessionId: string): Promise<void> {
+    await this.request(
+      `/api/experimental/session/${encodeURIComponent(sessionId)}/wait`,
+      { method: "POST" },
+      30 * 60 * 1000,
+    );
+  }
+
+  async interrupt(sessionId: string): Promise<boolean> {
+    const response = await this.request<{ interrupted: boolean }>(
+      `/api/session/${encodeURIComponent(sessionId)}/interrupt`,
+      { method: "POST" },
+    );
+    return response.interrupted;
+  }
+
+  async latestAssistantResult(sessionId: string) {
+    const query = new URLSearchParams({ limit: "1", order: "desc", type: "assistant" });
+    const response = await this.request<SessionMessagesResponse>(
+      `/api/session/${encodeURIComponent(sessionId)}/message?${query.toString()}`,
+    );
+    const latestAssistant = response.data.find((message) => message.type === "assistant");
+    return latestAssistant ? { finish: latestAssistant.finish ?? null } : null;
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}, timeoutMs = 5000): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("accept", "application/json");
     if (init.body) headers.set("content-type", "application/json");
@@ -92,13 +137,14 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
       response = await fetch(new URL(path, `${this.environment.opencodeBaseUrl}/`), {
         ...init,
         headers,
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       throw new OpenCodeUnavailableError();
     }
 
     if (!response.ok) throw new OpenCodeUnavailableError();
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 }

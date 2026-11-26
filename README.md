@@ -6,9 +6,10 @@ Base de un MVP local para coordinar agentes de ingeniería, observar ejecuciones
 
 - La API crea/lista ejecuciones, consulta detalle, genera y persiste planes con tareas, consulta eventos y resume uso.
 - PostgreSQL se levanta con Docker Compose.
-- OpenCode se integra por su API HTTP con la versión requerida `2.4.2`; el adapter valida health, lista agentes y crea sesiones.
+- OpenCode se integra por su API HTTP con la versión requerida `2.4.2`; el adapter valida health, lista agentes, crea sesiones y ejecuta tareas.
 - OpenCode genera planes que se validan y persisten antes de ejecutar tareas.
-- La ejecución de sesiones por tarea, sus dependencias y cancelación siguen pendientes.
+- Las tareas se ejecutan secuencialmente en sesiones aisladas y respetan sus dependencias; las ejecuciones se pueden cancelar.
+- Cada ejecución usa un worktree Git separado de `OPENCODE_WORKSPACE_ROOT`; sus cambios quedan allí para revisión humana y no se integran automáticamente.
 - No hay dashboard React, CRUD generado, tablas de tarifas ni Quality Gate ejecutable todavía.
 
 ## Requisitos
@@ -29,7 +30,7 @@ npm run db:migrate
 npm run dev:api
 ```
 
-Configura `OPENCODE_BASE_URL`, `OPENCODE_REQUIRED_VERSION`, `OPENCODE_WORKSPACE_ROOT` y `OPENCODE_PASSWORD` en `.env`. Ejecuta OpenCode `2.4.2` con `opencode serve --hostname 127.0.0.1 --port 4096`, usando el mismo password y un workspace visible desde ambos procesos. El adapter usa Basic Auth con el usuario fijo `opencode`; no registra la contraseña.
+Configura `OPENCODE_BASE_URL`, `OPENCODE_REQUIRED_VERSION`, `OPENCODE_WORKSPACE_ROOT`, `OPENCODE_WORKTREE_ROOT` y `OPENCODE_PASSWORD` en `.env`. Ejecuta OpenCode `2.4.2` con `opencode serve --hostname 127.0.0.1 --port 4096`, usando el mismo password y una carpeta visible desde ambos procesos. El workspace debe ser un repositorio Git. El directorio de worktrees usa por defecto una carpeta hermana llamada `.aief-worktrees`. El adapter usa Basic Auth con el usuario fijo `opencode`; no registra la contraseña.
 
 La API escucha solo en `127.0.0.1:3000/api`, y PostgreSQL publica su puerto solo en la interfaz local. El esquema de base de datos se encuentra en `apps/orchestration-api/prisma/schema.prisma`.
 
@@ -52,6 +53,7 @@ npm run quality
 - `GET /api/executions`
 - `GET /api/executions/:id`
 - `POST /api/executions/:id/plan`
+- `POST /api/executions/:id/start`
 - `POST /api/executions/:id/cancel`
 - `GET /api/executions/:id/events`
 - `GET /api/executions/:id/stream` (SSE)
@@ -66,16 +68,17 @@ Los identificadores de ejecución deben ser UUID válidos. `POST /api/executions
 
 La ruta de eventos devuelve el campo `eventId` del contrato compartido; el detalle incluye hasta 500 eventos y el endpoint de historial devuelve hasta 1000 por consulta. El stream SSE emite eventos en orden temporal y retoma después del último `Last-Event-ID` recibido al reconectar. El resumen de uso conserva `null` cuando una métrica no está disponible y reporta cuántos turnos tienen uso o costo conocido.
 
-`POST /api/executions/:id/plan` crea una sesión temporal con el agente `orchestrator`, solicita un plan JSON y valida IDs de agentes, criterios de aceptación y dependencias sin ciclos. Persiste las tareas como `PLANNED` y publica `EXECUTION_PLAN_CREATED`. Un error de OpenCode o de validación deja la ejecución como `FAILED` y registra un evento sin copiar el mensaje interno. La ejecución de esas tareas aún no está implementada.
+`POST /api/executions/:id/plan` crea una sesión temporal con el agente `orchestrator`, solicita un plan JSON y valida IDs de agentes, criterios de aceptación y dependencias sin ciclos. Persiste las tareas como `PLANNED` y publica `EXECUTION_PLAN_CREATED`. Un error de OpenCode o de validación deja la ejecución como `FAILED` y registra un evento sin copiar el mensaje interno.
+
+`POST /api/executions/:id/start` solo inicia ejecuciones con plan guardado. Crea un worktree Git aislado y ejecuta una sesión OpenCode por tarea, una a la vez. Una tarea comienza cuando todas sus dependencias están `COMPLETED`; si una falla, las pendientes quedan `BLOCKED` y la ejecución queda `FAILED`. Cancelar marca tareas no terminales como `CANCELLED` e intenta interrumpir sus sesiones. Las ejecuciones no se integran ni publican automáticamente. Al iniciar, la API reanuda ejecuciones `RUNNING`, verifica el worktree y comprueba el historial de OpenCode antes de volver a enviar la tarea. La coordinación distribuida para varias instancias de API sigue pendiente; el MVP debe ejecutarse con una sola instancia.
 
 El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la actividad de sesiones OpenCode en tiempo real.
 
 ## Próximos cortes
 
-1. Ejecutar tareas planificadas en sesiones OpenCode independientes; aplicar dependencias, fallos y cancelación.
-2. Crear workspaces aislados por ejecución y una revisión humana antes de integrar cambios.
-3. Persistir eventos y artefactos de las sesiones con correlación e idempotencia; mostrarlos en el dashboard.
-4. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
-5. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
+1. Agregar coordinación distribuida para ejecutar varias instancias de la API.
+2. Persistir eventos y artefactos de las sesiones con correlación e idempotencia; mostrarlos en el dashboard.
+3. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
+4. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
 
 El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.

@@ -1,6 +1,14 @@
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export const APP_ENVIRONMENT = Symbol("APP_ENVIRONMENT");
+
+function isInsideDirectory(baseDirectory: string, candidate: string): boolean {
+  const relativePath = relative(baseDirectory, candidate);
+  return (
+    !relativePath ||
+    (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath))
+  );
+}
 
 export interface AppEnvironment {
   apiPort: number;
@@ -11,6 +19,7 @@ export interface AppEnvironment {
   opencodePassword: string | null;
   opencodeRequiredVersion: string;
   opencodeWorkspaceRoot: string;
+  opencodeWorktreeRoot: string;
 }
 
 function parseHttpUrl(value: string, name: string): string {
@@ -99,6 +108,16 @@ function parseDefaultBudget(value: string | undefined): number | null {
 }
 
 export function loadAppEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnvironment {
+  const opencodeWorkspaceRoot = resolve(env.OPENCODE_WORKSPACE_ROOT?.trim() || process.cwd());
+  const opencodeWorktreeRoot = resolve(
+    env.OPENCODE_WORKTREE_ROOT?.trim() || resolve(opencodeWorkspaceRoot, "..", ".aief-worktrees"),
+  );
+  if (isInsideDirectory(opencodeWorkspaceRoot, opencodeWorktreeRoot)) {
+    throw new Error(
+      "Invalid configuration: OPENCODE_WORKTREE_ROOT must be outside the source workspace.",
+    );
+  }
+
   return {
     apiPort: parsePort(env.API_PORT),
     databaseUrl: parseDatabaseUrl(env.DATABASE_URL),
@@ -110,6 +129,7 @@ export function loadAppEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnv
     ),
     opencodePassword: env.OPENCODE_PASSWORD || null,
     opencodeRequiredVersion: env.OPENCODE_REQUIRED_VERSION?.trim() || "2.4.2",
-    opencodeWorkspaceRoot: resolve(env.OPENCODE_WORKSPACE_ROOT?.trim() || process.cwd()),
+    opencodeWorkspaceRoot,
+    opencodeWorktreeRoot,
   };
 }

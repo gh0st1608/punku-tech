@@ -24,6 +24,7 @@ import { ExecutionExistsGuard } from "./execution-exists.guard";
 import { ExecutionPlanningConflictError } from "../application/execution-planning-conflict.error";
 import { ExecutionPlanInvalidError } from "../application/execution-plan-invalid.error";
 import { OpenCodeUnavailableError } from "../../opencode/application/opencode-unavailable.error";
+import { ExecutionWorkspaceUnavailableError } from "../application/execution-workspace-unavailable.error";
 
 type StreamRequest = Request<{ id: string }> & { eventCursor: EventCursor | null };
 
@@ -56,6 +57,21 @@ export class ExecutionsController {
       if (error instanceof OpenCodeUnavailableError)
         throw new ServiceUnavailableException(error.message);
       if (error instanceof ExecutionPlanInvalidError) throw new BadGatewayException(error.message);
+      throw error;
+    }
+  }
+
+  @Post(":id/start")
+  async start(@Param("id", new ParseUUIDPipe()) id: string) {
+    try {
+      return await this.executions.start(id);
+    } catch (error) {
+      if (error instanceof ExecutionPlanningConflictError)
+        throw new ConflictException(error.message);
+      if (error instanceof ExecutionWorkspaceUnavailableError)
+        throw new ServiceUnavailableException(error.message);
+      if (error instanceof OpenCodeUnavailableError)
+        throw new ServiceUnavailableException(error.message);
       throw error;
     }
   }

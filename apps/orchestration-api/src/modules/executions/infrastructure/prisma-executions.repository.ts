@@ -11,7 +11,7 @@ import type {
 } from "@aief/contracts";
 import { agentIds } from "@aief/contracts";
 import type { Prisma } from "@prisma/client";
-import { ExecutionStatus } from "@prisma/client";
+import { ExecutionStatus, TaskStatus } from "@prisma/client";
 import type { PrismaService } from "../../prisma/prisma.service";
 import type { EventCursor, ExecutionsRepository } from "../application/executions.repository";
 
@@ -209,6 +209,236 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
+  async startIfPlanned(id: string, workspacePath: string, startedAt: Date): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.execution.updateMany({
+        where: { id, status: ExecutionStatus.PLANNED },
+        data: { status: ExecutionStatus.RUNNING, startedAt, workspacePath },
+      });
+      if (result.count === 0) return false;
+      await tx.event.create({
+        data: {
+          executionId: id,
+          eventType: "EXECUTION_STARTED",
+          source: EVENT_SOURCE,
+          payload: { taskCount: await tx.task.count({ where: { executionId: id } }) },
+        },
+      });
+      return true;
+    });
+  }
+
+  async workspacePath(id: string): Promise<string | null> {
+    const row = await this.prisma.execution.findUnique({
+      where: { id },
+      select: { workspacePath: true },
+    });
+    return row?.workspacePath ?? null;
+  }
+
+  async startTaskIfPending(executionId: string, taskId: string, startedAt: Date): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.task.updateMany({
+        where: {
+          id: taskId,
+          executionId,
+          status: TaskStatus.PENDING,
+          execution: { status: ExecutionStatus.RUNNING },
+        },
+        data: { status: TaskStatus.RUNNING, startedAt },
+      });
+      if (result.count === 0) return false;
+      const task = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+      await tx.event.create({
+        data: {
+          executionId,
+          eventType: "TASK_STARTED",
+          source: EVENT_SOURCE,
+          taskId,
+          agentId: task.agentId,
+          payload: { sequence: task.sequence, title: task.title },
+        },
+      });
+      return true;
+    });
+  }
+
+  async attachTaskSession(
+    executionId: string,
+    taskId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.task.updateMany({
+        where: {
+          id: taskId,
+          executionId,
+          status: TaskStatus.RUNNING,
+          execution: { status: ExecutionStatus.RUNNING },
+        },
+        data: { sessionId },
+      });
+      if (result.count === 0) return false;
+      const task = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+      await tx.event.create({
+        data: {
+          executionId,
+          eventType: "TASK_SESSION_CREATED",
+          source: EVENT_SOURCE,
+          taskId,
+          agentId: task.agentId,
+          sessionId,
+          payload: {},
+        },
+      });
+      return true;
+    });
+  }
+
+  async completeTask(executionId: string, taskId: string, finishedAt: Date): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.task.updateMany({
+        where: {
+          id: taskId,
+          executionId,
+          status: TaskStatus.RUNNING,
+          execution: { status: ExecutionStatus.RUNNING },
+        },
+        data: { status: TaskStatus.COMPLETED, finishedAt },
+      });
+      if (result.count === 0) return false;
+      const task = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+      await tx.event.create({
+        data: {
+          executionId,
+          eventType: "TASK_COMPLETED",
+          source: EVENT_SOURCE,
+          taskId,
+          agentId: task.agentId,
+          sessionId: task.sessionId,
+          payload: {},
+        },
+      });
+      return true;
+    });
+  }
+
+  async failTaskAndExecution(executionId: string, taskId: string, finishedAt: Date): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const task = await tx.task.findUnique({ where: { id: taskId } });
+      if (!task) return;
+      const failed = await tx.task.updateMany({
+        where: {
+          id: taskId,
+          executionId,
+          status: TaskStatus.RUNNING,
+          execution: { status: ExecutionStatus.RUNNING },
+        },
+        data: { status: TaskStatus.FAILED, finishedAt },
+      });
+      if (failed.count === 0) return;
+      await tx.execution.updateMany({
+        where: { id: executionId, status: ExecutionStatus.RUNNING },
+        data: { status: ExecutionStatus.FAILED, finishedAt },
+      });
+      await tx.task.updateMany({
+        where: { executionId, status: TaskStatus.PENDING },
+        data: { status: TaskStatus.BLOCKED, finishedAt },
+      });
+      await tx.event.createMany({
+        data: [
+          {
+            executionId,
+            eventType: "TASK_FAILED",
+            source: EVENT_SOURCE,
+            taskId,
+            agentId: task.agentId,
+            sessionId: task.sessionId,
+            payload: { failure: "agent_task_failed" },
+          },
+          {
+            executionId,
+            eventType: "EXECUTION_FAILED",
+            source: EVENT_SOURCE,
+            payload: { taskId, failure: "agent_task_failed" },
+          },
+        ],
+      });
+    });
+  }
+
+  async completeExecutionIfTasksDone(executionId: string, finishedAt: Date): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const unfinishedCount = await tx.task.count({
+        where: { executionId, status: { not: TaskStatus.COMPLETED } },
+      });
+      if (unfinishedCount !== 0) return;
+      const result = await tx.execution.updateMany({
+        where: { id: executionId, status: ExecutionStatus.RUNNING },
+        data: { status: ExecutionStatus.COMPLETED, finishedAt },
+      });
+      if (result.count === 0) return;
+      await tx.event.create({
+        data: {
+          executionId,
+          eventType: "EXECUTION_COMPLETED",
+          source: EVENT_SOURCE,
+          payload: {},
+        },
+      });
+    });
+  }
+
+  async failExecutionIfActive(executionId: string, finishedAt: Date): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const runningTasks = await tx.task.findMany({
+        where: { executionId, status: TaskStatus.RUNNING },
+        select: { id: true, sessionId: true, agentId: true },
+      });
+      const result = await tx.execution.updateMany({
+        where: { id: executionId, status: ExecutionStatus.RUNNING },
+        data: { status: ExecutionStatus.FAILED, finishedAt },
+      });
+      if (result.count === 0) return;
+      await tx.task.updateMany({
+        where: { executionId, status: TaskStatus.PENDING },
+        data: { status: TaskStatus.BLOCKED, finishedAt },
+      });
+      await tx.task.updateMany({
+        where: { executionId, status: TaskStatus.RUNNING },
+        data: { status: TaskStatus.FAILED, finishedAt },
+      });
+      await tx.event.createMany({
+        data: [
+          ...runningTasks.map((task) => ({
+            executionId,
+            eventType: "TASK_FAILED",
+            source: EVENT_SOURCE,
+            taskId: task.id,
+            agentId: task.agentId,
+            sessionId: task.sessionId,
+            payload: { failure: "agent_task_failed" },
+          })),
+          {
+            executionId,
+            eventType: "EXECUTION_FAILED",
+            source: EVENT_SOURCE,
+            payload: { failure: "execution_runner_failed" },
+          },
+        ],
+      });
+    });
+  }
+
+  async listRunningExecutionIds(): Promise<string[]> {
+    const rows = await this.prisma.execution.findMany({
+      where: { status: ExecutionStatus.RUNNING },
+      select: { id: true },
+      orderBy: { startedAt: "asc" },
+    });
+    return rows.map((row) => row.id);
+  }
+
   async failPlanningIfActive(id: string, finishedAt: Date): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({
@@ -228,7 +458,7 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
-  async cancelIfActive(id: string, finishedAt: Date): Promise<ExecutionRecord | null> {
+  async cancelIfActive(id: string, finishedAt: Date) {
     const row = await this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({
         where: {
@@ -241,6 +471,31 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
       });
       if (result.count === 0) return null;
 
+      const sessions = await tx.task.findMany({
+        where: { executionId: id, status: TaskStatus.RUNNING, sessionId: { not: null } },
+        select: { id: true, sessionId: true, agentId: true },
+      });
+      await tx.task.updateMany({
+        where: {
+          executionId: id,
+          status: { in: [TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.BLOCKED] },
+        },
+        data: { status: TaskStatus.CANCELLED, finishedAt },
+      });
+      if (sessions.length) {
+        await tx.event.createMany({
+          data: sessions.map((task) => ({
+            executionId: id,
+            eventType: "TASK_CANCELLED",
+            source: EVENT_SOURCE,
+            taskId: task.id,
+            agentId: task.agentId,
+            sessionId: task.sessionId,
+            payload: {},
+          })),
+        });
+      }
+
       await tx.event.create({
         data: {
           executionId: id,
@@ -249,10 +504,15 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           payload: {},
         },
       });
-      return tx.execution.findUniqueOrThrow({ where: { id } });
+      return { execution: await tx.execution.findUniqueOrThrow({ where: { id } }), sessions };
     });
 
-    return row ? mapExecution(row) : null;
+    return row
+      ? {
+          execution: mapExecution(row.execution),
+          sessionIds: row.sessions.flatMap((task) => (task.sessionId ? [task.sessionId] : [])),
+        }
+      : null;
   }
 
   async findEventCursor(executionId: string, eventId: string): Promise<EventCursor | null> {
