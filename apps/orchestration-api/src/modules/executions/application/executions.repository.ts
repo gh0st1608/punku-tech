@@ -38,6 +38,7 @@ export interface ExecutionsRepository {
   failTaskAndExecution(executionId: string, taskId: string, finishedAt: Date): Promise<void>;
   completeExecutionIfTasksDone(executionId: string, finishedAt: Date): Promise<void>;
   failExecutionIfActive(executionId: string, finishedAt: Date): Promise<void>;
+  listRunningExecutionIds(): Promise<string[]>;
   failPlanningIfActive(id: string, finishedAt: Date): Promise<void>;
   cancelIfActive(id: string, finishedAt: Date): Promise<CancellationResult | null>;
   findEventCursor(executionId: string, eventId: string): Promise<EventCursor | null>;

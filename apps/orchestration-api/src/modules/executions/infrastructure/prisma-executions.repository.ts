@@ -430,6 +430,15 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
+  async listRunningExecutionIds(): Promise<string[]> {
+    const rows = await this.prisma.execution.findMany({
+      where: { status: ExecutionStatus.RUNNING },
+      select: { id: true },
+      orderBy: { startedAt: "asc" },
+    });
+    return rows.map((row) => row.id);
+  }
+
   async failPlanningIfActive(id: string, finishedAt: Date): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({

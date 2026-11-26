@@ -35,6 +35,7 @@ export interface OpenCodeGateway {
   }): Promise<OpenCodeSession>;
   generate(sessionId: string, prompt: string): Promise<string>;
   prompt(sessionId: string, prompt: string): Promise<void>;
+  hasPrompt(sessionId: string, prompt: string): Promise<boolean>;
   wait(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<boolean>;
   latestAssistantResult(sessionId: string): Promise<OpenCodeAssistantResult | null>;

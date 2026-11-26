@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Logger } from "@nestjs/common";
+import type { OnApplicationBootstrap } from "@nestjs/common";
 import type {
   CreateExecutionRequest,
   DomainEvent,
@@ -128,7 +129,7 @@ function readPlan(text: string, availableAgentIds: Set<string>): PlanDraftTask[]
   return tasks;
 }
 
-export class ExecutionsService {
+export class ExecutionsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ExecutionsService.name);
 
   constructor(
@@ -137,6 +138,11 @@ export class ExecutionsService {
     private readonly openCode: OpenCodeGateway,
     private readonly worktrees: GitWorktreeManager,
   ) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    const runningExecutionIds = await this.repository.listRunningExecutionIds();
+    for (const executionId of runningExecutionIds) this.runInBackground(executionId);
+  }
 
   create(input: CreateExecutionRequest): Promise<ExecutionRecord> {
     const requirement = input.requirement.trim();
@@ -228,21 +234,31 @@ export class ExecutionsService {
       throw new ExecutionWorkspaceUnavailableError();
     }
 
-    void this.executeTasks(id).catch(async () => {
-      await this.repository.failExecutionIfActive(id, new Date());
-      this.logger.error(`Task runner stopped unexpectedly for execution ${id}.`);
-    });
+    this.runInBackground(id);
     return this.get(id);
+  }
+
+  private runInBackground(executionId: string): void {
+    void this.executeTasks(executionId).catch(async () => {
+      await this.repository.failExecutionIfActive(executionId, new Date());
+      this.logger.error(`Task runner stopped unexpectedly for execution ${executionId}.`);
+    });
   }
 
   private async executeTasks(executionId: string): Promise<void> {
     const workspacePath = await this.repository.workspacePath(executionId);
-    if (!workspacePath) throw new Error("Execution workspace is missing.");
+    if (
+      workspacePath !== this.worktrees.directoryFor(executionId) ||
+      !(await this.worktrees.validate(executionId))
+    ) {
+      throw new Error("Execution workspace is missing or invalid.");
+    }
 
     while (true) {
       const execution = await this.get(executionId);
       if (execution.status !== "RUNNING") return;
-      const task = this.nextRunnableTask(execution.tasks);
+      const runningTask = execution.tasks.find((item) => item.status === "RUNNING");
+      const task = runningTask ?? this.nextRunnableTask(execution.tasks);
       if (!task) {
         const hasPendingTasks = execution.tasks.some((item) => item.status === "PENDING");
         if (hasPendingTasks) {
@@ -276,29 +292,42 @@ export class ExecutionsService {
     task: TaskRecord,
     workspacePath: string,
   ): Promise<boolean> {
-    if (!(await this.repository.startTaskIfPending(executionId, task.id, new Date()))) return false;
-    const availableAgentIds = new Set(
-      (await this.openCode.listAgents(workspacePath)).map((agent) => agent.id),
-    );
-    if (!availableAgentIds.has(task.agentId)) {
-      await this.repository.failTaskAndExecution(executionId, task.id, new Date());
+    if (
+      task.status === "PENDING" &&
+      !(await this.repository.startTaskIfPending(executionId, task.id, new Date()))
+    ) {
       return false;
     }
 
-    const session = await this.openCode.createSession({
-      title: `${task.agentId}: ${task.title}`,
-      agentId: task.agentId as (typeof agentIds)[number],
-      directory: workspacePath,
-    });
-    const attached = await this.repository.attachTaskSession(executionId, task.id, session.id);
-    if (!attached) {
-      await this.openCode.interrupt(session.id).catch(() => false);
-      return false;
+    let sessionId = task.sessionId;
+    if (!sessionId) {
+      const availableAgentIds = new Set(
+        (await this.openCode.listAgents(workspacePath)).map((agent) => agent.id),
+      );
+      if (!availableAgentIds.has(task.agentId)) {
+        await this.repository.failTaskAndExecution(executionId, task.id, new Date());
+        return false;
+      }
+
+      const session = await this.openCode.createSession({
+        title: `${task.agentId}: ${task.title}`,
+        agentId: task.agentId as (typeof agentIds)[number],
+        directory: workspacePath,
+      });
+      const attached = await this.repository.attachTaskSession(executionId, task.id, session.id);
+      if (!attached) {
+        await this.openCode.interrupt(session.id).catch(() => false);
+        return false;
+      }
+      sessionId = session.id;
     }
 
-    await this.openCode.prompt(session.id, this.taskPrompt(task));
-    await this.openCode.wait(session.id);
-    const result = await this.openCode.latestAssistantResult(session.id);
+    const prompt = this.taskPrompt(task);
+    if (!(await this.openCode.hasPrompt(sessionId, prompt))) {
+      await this.openCode.prompt(sessionId, prompt);
+    }
+    await this.openCode.wait(sessionId);
+    const result = await this.openCode.latestAssistantResult(sessionId);
     if (result?.finish !== "stop") {
       await this.repository.failTaskAndExecution(executionId, task.id, new Date());
       return false;

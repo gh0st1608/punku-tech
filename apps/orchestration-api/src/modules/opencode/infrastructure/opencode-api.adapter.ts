@@ -88,6 +88,14 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
     });
   }
 
+  async hasPrompt(sessionId: string, prompt: string): Promise<boolean> {
+    const query = new URLSearchParams({ limit: "50", order: "desc", type: "user" });
+    const response = await this.request<SessionMessagesResponse>(
+      `/api/session/${encodeURIComponent(sessionId)}/message?${query.toString()}`,
+    );
+    return response.data.some((message) => message.type === "user" && message.text === prompt);
+  }
+
   async wait(sessionId: string): Promise<void> {
     await this.request(
       `/api/experimental/session/${encodeURIComponent(sessionId)}/wait`,

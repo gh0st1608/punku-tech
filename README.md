@@ -70,13 +70,13 @@ La ruta de eventos devuelve el campo `eventId` del contrato compartido; el detal
 
 `POST /api/executions/:id/plan` crea una sesión temporal con el agente `orchestrator`, solicita un plan JSON y valida IDs de agentes, criterios de aceptación y dependencias sin ciclos. Persiste las tareas como `PLANNED` y publica `EXECUTION_PLAN_CREATED`. Un error de OpenCode o de validación deja la ejecución como `FAILED` y registra un evento sin copiar el mensaje interno.
 
-`POST /api/executions/:id/start` solo inicia ejecuciones con plan guardado. Crea un worktree Git aislado y ejecuta una sesión OpenCode por tarea, una a la vez. Una tarea comienza cuando todas sus dependencias están `COMPLETED`; si una falla, las pendientes quedan `BLOCKED` y la ejecución queda `FAILED`. Cancelar marca tareas no terminales como `CANCELLED` e intenta interrumpir sus sesiones. Las ejecuciones no se integran ni publican automáticamente. El runner vive en el proceso de la API; si se reinicia mientras hay tareas activas, la recuperación automática queda pendiente.
+`POST /api/executions/:id/start` solo inicia ejecuciones con plan guardado. Crea un worktree Git aislado y ejecuta una sesión OpenCode por tarea, una a la vez. Una tarea comienza cuando todas sus dependencias están `COMPLETED`; si una falla, las pendientes quedan `BLOCKED` y la ejecución queda `FAILED`. Cancelar marca tareas no terminales como `CANCELLED` e intenta interrumpir sus sesiones. Las ejecuciones no se integran ni publican automáticamente. Al iniciar, la API reanuda ejecuciones `RUNNING`, verifica el worktree y comprueba el historial de OpenCode antes de volver a enviar la tarea. La coordinación distribuida para varias instancias de API sigue pendiente; el MVP debe ejecutarse con una sola instancia.
 
 El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la actividad de sesiones OpenCode en tiempo real.
 
 ## Próximos cortes
 
-1. Agregar recuperación durable de ejecuciones activas después de reiniciar la API.
+1. Agregar coordinación distribuida para ejecutar varias instancias de la API.
 2. Persistir eventos y artefactos de las sesiones con correlación e idempotencia; mostrarlos en el dashboard.
 3. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
 4. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
