@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExecutionStatus {
+  CREATED
+  PLANNING
+  RUNNING
+  VALIDATING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  BLOCKED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Execution {
+  id         String          @id @default(uuid()) @db.Uuid
+  name       String
+  requirement String         @db.Text
+  status     ExecutionStatus @default(CREATED)
+  budgetUsd  Decimal?        @db.Decimal(12, 6) @map("budget_usd")
+  startedAt  DateTime?       @map("started_at")
+  finishedAt DateTime?       @map("finished_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  tasks      Task[]
+  events     Event[]
+  usage      UsageRecord[]
+
+  @@map("executions")
+}
+
+model Task {
+  id          String     @id @default(uuid()) @db.Uuid
+  executionId String     @db.Uuid @map("execution_id")
+  agentId     String     @map("agent_id")
+  title       String
+  description String     @db.Text
+  status      TaskStatus @default(PENDING)
+  dependsOn   Json       @default("[]") @map("depends_on_json")
+  sessionId   String?    @map("session_id")
+  startedAt   DateTime?  @map("started_at")
+  finishedAt  DateTime?  @map("finished_at")
+  execution   Execution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId, status])
+  @@map("tasks")
+}
+
+model Event {
+  id            String    @id @default(uuid()) @db.Uuid
+  executionId   String    @db.Uuid @map("execution_id")
+  eventType     String    @map("event_type")
+  occurredAt    DateTime  @default(now()) @map("occurred_at")
+  source        String
+  agentId       String?   @map("agent_id")
+  taskId        String?   @db.Uuid @map("task_id")
+  sessionId     String?   @map("session_id")
+  payload       Json      @default("{}") @map("payload_json")
+  schemaVersion Int       @default(1) @map("schema_version")
+  execution     Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId, occurredAt])
+  @@map("events")
+}
+
+model UsageRecord {
+  id               String    @id @default(uuid()) @db.Uuid
+  executionId      String    @db.Uuid @map("execution_id")
+  taskId           String?   @db.Uuid @map("task_id")
+  agentId          String?   @map("agent_id")
+  sessionId        String    @map("session_id")
+  messageId        String    @map("message_id")
+  provider         String?
+  model            String?
+  inputTokens      Int?      @map("input_tokens")
+  outputTokens     Int?      @map("output_tokens")
+  reasoningTokens  Int?      @map("reasoning_tokens")
+  cacheReadTokens  Int?      @map("cache_read_tokens")
+  cacheWriteTokens Int?      @map("cache_write_tokens")
+  reportedCostUsd  Decimal?  @db.Decimal(12, 8) @map("reported_cost_usd")
+  estimatedCostUsd Decimal?  @db.Decimal(12, 8) @map("estimated_cost_usd")
+  costStatus       String    @default("UNAVAILABLE") @map("cost_status")
+  rateVersion      String?   @map("rate_version")
+  recordedAt       DateTime  @default(now()) @map("recorded_at")
+  execution        Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, messageId])
+  @@index([executionId, taskId])
+  @@map("usage_records")
+}
