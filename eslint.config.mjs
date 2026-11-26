@@ -17,7 +17,7 @@ export default tseslint.config(
       complexity: ["warn", 12],
       "max-params": ["warn", 4],
       "sonarjs/cognitive-complexity": ["warn", 15],
-      "sonarjs/no-duplicate-string": ["warn", 4],
+      "sonarjs/no-duplicate-string": ["warn", { threshold: 4 }],
     },
   },
   eslintConfigPrettier,

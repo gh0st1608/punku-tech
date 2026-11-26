@@ -1,11 +1,29 @@
-import { Body, Controller, Get, MessageEvent, Param, ParseUUIDPipe, Post, Req, Sse, UseGuards } from "@nestjs/common";
-import { CreateExecutionRequest } from "@aief/contracts";
-import { Observable, defer, from, map, mergeMap, repeat, tap } from "rxjs";
-import { Request } from "express";
-import { ExecutionsService } from "../application/executions.service";
-import { EventCursor } from "../application/executions.repository";
-import { CreateExecutionDto } from "./dto/create-execution.dto";
+import type { MessageEvent } from "@nestjs/common";
+import {
+  BadGatewayException,
+  Body,
+  ConflictException,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  Sse,
+  ServiceUnavailableException,
+  UseGuards,
+} from "@nestjs/common";
+import type { CreateExecutionRequest } from "@aief/contracts";
+import type { Observable } from "rxjs";
+import { defer, from, map, mergeMap, repeat, tap } from "rxjs";
+import type { Request } from "express";
+import type { ExecutionsService } from "../application/executions.service";
+import type { EventCursor } from "../application/executions.repository";
+import type { CreateExecutionDto } from "./dto/create-execution.dto";
 import { ExecutionExistsGuard } from "./execution-exists.guard";
+import { ExecutionPlanningConflictError } from "../application/execution-planning-conflict.error";
+import { ExecutionPlanInvalidError } from "../application/execution-plan-invalid.error";
+import { OpenCodeUnavailableError } from "../../opencode/application/opencode-unavailable.error";
 
 type StreamRequest = Request<{ id: string }> & { eventCursor: EventCursor | null };
 
@@ -28,9 +46,18 @@ export class ExecutionsController {
     return this.executions.get(id);
   }
 
-  @Post(":id/start")
-  start(@Param("id", new ParseUUIDPipe()) id: string) {
-    return this.executions.start(id);
+  @Post(":id/plan")
+  async plan(@Param("id", new ParseUUIDPipe()) id: string) {
+    try {
+      return await this.executions.plan(id);
+    } catch (error) {
+      if (error instanceof ExecutionPlanningConflictError)
+        throw new ConflictException(error.message);
+      if (error instanceof OpenCodeUnavailableError)
+        throw new ServiceUnavailableException(error.message);
+      if (error instanceof ExecutionPlanInvalidError) throw new BadGatewayException(error.message);
+      throw error;
+    }
   }
 
   @Post(":id/cancel")
@@ -50,7 +77,10 @@ export class ExecutionsController {
 
   @Sse(":id/stream")
   @UseGuards(ExecutionExistsGuard)
-  stream(@Param("id", new ParseUUIDPipe()) id: string, @Req() request: StreamRequest): Observable<MessageEvent> {
+  stream(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Req() request: StreamRequest,
+  ): Observable<MessageEvent> {
     let cursor = request.eventCursor;
     return defer(() => from(this.executions.eventsAfter(id, cursor, 1000))).pipe(
       tap((events) => {

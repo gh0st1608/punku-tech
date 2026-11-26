@@ -1,12 +1,34 @@
 export const executionStatuses = [
-  "CREATED", "PLANNING", "RUNNING", "VALIDATING", "COMPLETED", "FAILED", "CANCELLED",
+  "CREATED",
+  "PLANNING",
+  "PLANNED",
+  "RUNNING",
+  "VALIDATING",
+  "COMPLETED",
+  "FAILED",
+  "CANCELLED",
 ] as const;
 export type ExecutionStatus = (typeof executionStatuses)[number];
 
-export const taskStatuses = ["PENDING", "RUNNING", "BLOCKED", "COMPLETED", "FAILED", "CANCELLED"] as const;
+export const taskStatuses = [
+  "PENDING",
+  "RUNNING",
+  "BLOCKED",
+  "COMPLETED",
+  "FAILED",
+  "CANCELLED",
+] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
 
-export const agentIds = ["orchestrator", "backend", "frontend", "devops", "qa", "security", "documentation"] as const;
+export const agentIds = [
+  "orchestrator",
+  "backend",
+  "frontend",
+  "devops",
+  "qa",
+  "security",
+  "documentation",
+] as const;
 export type AgentId = (typeof agentIds)[number];
 
 export interface DomainEvent<TPayload = Record<string, unknown>> {
@@ -43,14 +65,26 @@ export interface ExecutionRecord {
 
 export interface TaskRecord {
   id: string;
+  sequence: number;
   agentId: string;
   title: string;
   description: string;
+  acceptanceCriteria: string[];
   status: TaskStatus;
   dependsOn: string[];
   sessionId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+export interface PlannedTask {
+  id: string;
+  sequence: number;
+  agentId: AgentId;
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  dependsOn: string[];
 }
 
 export interface ExecutionDetails extends ExecutionRecord {

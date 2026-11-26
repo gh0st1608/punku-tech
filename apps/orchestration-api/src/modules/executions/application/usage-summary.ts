@@ -1,4 +1,4 @@
-import { UsageRecordForSummary, UsageSummary } from "@aief/contracts";
+import type { UsageRecordForSummary, UsageSummary } from "@aief/contracts";
 
 const tokenFields = [
   "inputTokens",
@@ -15,7 +15,9 @@ function sumKnown(values: Array<number | null>): number | null {
 
 export function summarizeUsage(rows: UsageRecordForSummary[]): UsageSummary {
   const rowsWithTokens = rows.filter((row) => tokenFields.some((field) => row[field] !== null));
-  const completeTokenRows = rows.filter((row) => row.inputTokens !== null && row.outputTokens !== null);
+  const completeTokenRows = rows.filter(
+    (row) => row.inputTokens !== null && row.outputTokens !== null,
+  );
   const unavailableUsageTurns = rows.length - rowsWithTokens.length;
 
   let tokenAvailability: UsageSummary["tokenAvailability"] = "UNAVAILABLE";
@@ -39,6 +41,8 @@ export function summarizeUsage(rows: UsageRecordForSummary[]): UsageSummary {
     reportedCostTurns: reportedCostRows.length,
     estimatedCostUsd: sumKnown(rows.map((row) => row.estimatedCostUsd)),
     estimatedCostTurns: estimatedCostRows.length,
-    unavailableCostTurns: rows.filter((row) => row.reportedCostUsd === null && row.estimatedCostUsd === null).length,
+    unavailableCostTurns: rows.filter(
+      (row) => row.reportedCostUsd === null && row.estimatedCostUsd === null,
+    ).length,
   };
 }
