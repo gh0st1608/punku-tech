@@ -6,6 +6,7 @@ import type {
   PlannedTask,
   UsageRecordForSummary,
 } from "@aief/contracts";
+import type { OpenCodeSessionEvent } from "../../opencode/application/opencode.gateway";
 
 export const EXECUTIONS_REPOSITORY = Symbol("EXECUTIONS_REPOSITORY");
 
@@ -39,6 +40,7 @@ export interface ExecutionsRepository {
   completeExecutionIfTasksDone(executionId: string, finishedAt: Date): Promise<void>;
   failExecutionIfActive(executionId: string, finishedAt: Date): Promise<void>;
   listRunningExecutionIds(): Promise<string[]>;
+  persistSessionEvent(event: OpenCodeSessionEvent): Promise<void>;
   failPlanningIfActive(id: string, finishedAt: Date): Promise<void>;
   cancelIfActive(id: string, finishedAt: Date): Promise<CancellationResult | null>;
   findEventCursor(executionId: string, eventId: string): Promise<EventCursor | null>;

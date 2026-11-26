@@ -66,7 +66,7 @@ Los identificadores de ejecución deben ser UUID válidos. `POST /api/executions
 
 `CORS_ORIGINS` es una lista separada por comas de orígenes HTTP/HTTPS exactos. No admite comodines. La configuración inválida o la ausencia de `DATABASE_URL` impiden iniciar la API con un mensaje que no revela valores sensibles.
 
-La ruta de eventos devuelve el campo `eventId` del contrato compartido; el detalle incluye hasta 500 eventos y el endpoint de historial devuelve hasta 1000 por consulta. El stream SSE emite eventos en orden temporal y retoma después del último `Last-Event-ID` recibido al reconectar. El resumen de uso conserva `null` cuando una métrica no está disponible y reporta cuántos turnos tienen uso o costo conocido.
+La ruta de eventos devuelve el campo `eventId` del contrato compartido; eventos de OpenCode también incluyen `sourceEventId`. El detalle incluye hasta 500 eventos y el endpoint de historial devuelve hasta 1000 por consulta. El stream SSE emite eventos persistidos en orden temporal y retoma después del último `Last-Event-ID` recibido al reconectar. El consumidor guarda eventos de sesión con correlación a ejecución, tarea y agente, sin guardar texto, entradas de herramientas ni payloads de OpenCode; los IDs de origen evitan filas duplicadas. La API de eventos de OpenCode es volátil: los eventos emitidos mientras el consumidor está desconectado pueden perderse.
 
 `POST /api/executions/:id/plan` crea una sesión temporal con el agente `orchestrator`, solicita un plan JSON y valida IDs de agentes, criterios de aceptación y dependencias sin ciclos. Persiste las tareas como `PLANNED` y publica `EXECUTION_PLAN_CREATED`. Un error de OpenCode o de validación deja la ejecución como `FAILED` y registra un evento sin copiar el mensaje interno.
 
@@ -77,7 +77,7 @@ El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la 
 ## Próximos cortes
 
 1. Agregar coordinación distribuida para ejecutar varias instancias de la API.
-2. Persistir eventos y artefactos de las sesiones con correlación e idempotencia; mostrarlos en el dashboard.
+2. Consultar resúmenes y entregables seguros por tarea y mostrarlos en el dashboard.
 3. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
 4. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
 
