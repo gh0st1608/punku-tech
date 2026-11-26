@@ -4,6 +4,7 @@ import type {
   ExecutionDetails,
   ExecutionRecord,
   PlannedTask,
+  TaskDetails,
   UsageRecordForSummary,
 } from "@aief/contracts";
 import type { OpenCodeSessionEvent } from "../../opencode/application/opencode.gateway";
@@ -24,6 +25,7 @@ export interface ExecutionsRepository {
   create(input: CreateExecutionRequest): Promise<ExecutionRecord>;
   list(): Promise<ExecutionRecord[]>;
   findDetails(id: string): Promise<ExecutionDetails | null>;
+  findTaskDetails(executionId: string, taskId: string): Promise<TaskDetails | null>;
   exists(id: string): Promise<boolean>;
   beginPlanningIfCreated(id: string, startedAt: Date): Promise<ExecutionRecord | null>;
   persistPlan(
@@ -35,7 +37,12 @@ export interface ExecutionsRepository {
   workspacePath(id: string): Promise<string | null>;
   startTaskIfPending(executionId: string, taskId: string, startedAt: Date): Promise<boolean>;
   attachTaskSession(executionId: string, taskId: string, sessionId: string): Promise<boolean>;
-  completeTask(executionId: string, taskId: string, finishedAt: Date): Promise<boolean>;
+  completeTask(
+    executionId: string,
+    taskId: string,
+    finishedAt: Date,
+    deliverables: { summary: string | null; artifactPaths: string[] },
+  ): Promise<boolean>;
   failTaskAndExecution(executionId: string, taskId: string, finishedAt: Date): Promise<void>;
   completeExecutionIfTasksDone(executionId: string, finishedAt: Date): Promise<void>;
   failExecutionIfActive(executionId: string, finishedAt: Date): Promise<void>;

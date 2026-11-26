@@ -74,8 +74,14 @@ export interface TaskRecord {
   status: TaskStatus;
   dependsOn: string[];
   sessionId: string | null;
+  summary: string | null;
+  artifactPaths: string[];
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+export interface TaskDetails extends TaskRecord {
+  events: DomainEvent[];
 }
 
 export interface PlannedTask {

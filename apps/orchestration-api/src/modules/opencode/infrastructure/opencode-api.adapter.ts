@@ -3,6 +3,7 @@ import type {
   AgentInfo,
   ServerInfo,
   SessionMessagesResponse,
+  SessionDiffOutput,
   SessionGenerateOutput,
   SessionInfo,
 } from "@opencode/client" with {
@@ -194,7 +195,21 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
       `/api/session/${encodeURIComponent(sessionId)}/message?${query.toString()}`,
     );
     const latestAssistant = response.data.find((message) => message.type === "assistant");
-    return latestAssistant ? { finish: latestAssistant.finish ?? null } : null;
+    if (!latestAssistant) return null;
+
+    const diff = await this.request<SessionDiffOutput>(
+      `/api/session/${encodeURIComponent(sessionId)}/diff`,
+    );
+    return {
+      finish: latestAssistant.finish ?? null,
+      summary:
+        latestAssistant.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n")
+          .trim() || null,
+      artifactPaths: diff.filter((file) => file.status !== "deleted").map((file) => file.file),
+    };
   }
 
   async *subscribeSessionEvents(signal: AbortSignal): AsyncIterable<OpenCodeSessionEvent> {
