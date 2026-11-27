@@ -17,7 +17,7 @@ Base de un MVP local para coordinar agentes de ingeniería, observar ejecuciones
 
 - Node.js 22 o posterior y npm
 - Docker Compose
-- OpenCode instalado y un proveedor/modelo configurado en el entorno local
+- OpenCode CLI `@opencode/cli` 2.4.2 con proveedor autenticado localmente
 - OpenCode `2.4.2` ejecutándose en el mismo host o con acceso al mismo workspace
 
 ## Inicio local
@@ -33,7 +33,7 @@ npm run dev:api
 
 En otra terminal, inicia el dashboard local con `npm run dev:web` y abre `http://127.0.0.1:5173`. Configura `CORS_ORIGINS=http://127.0.0.1:5173` en la API si usas ese origen; el `.env.example` del dashboard permite cambiar la URL de la API mediante `VITE_API_BASE_URL`.
 
-Configura `OPENCODE_BASE_URL`, `OPENCODE_REQUIRED_VERSION`, `OPENCODE_WORKSPACE_ROOT`, `OPENCODE_WORKTREE_ROOT` y `OPENCODE_PASSWORD` en `.env`. Ejecuta OpenCode `2.4.2` con `opencode serve --hostname 127.0.0.1 --port 4096`, usando el mismo password y una carpeta visible desde ambos procesos. El workspace debe ser un repositorio Git. El directorio de worktrees usa por defecto una carpeta hermana llamada `.aief-worktrees`. El adapter usa Basic Auth con el usuario fijo `opencode`; no registra la contraseña.
+Configura `OPENCODE_BASE_URL`, `OPENCODE_REQUIRED_VERSION`, `OPENCODE_WORKSPACE_ROOT`, `OPENCODE_WORKTREE_ROOT` y `OPENCODE_PASSWORD` en `.env`. El modelo predeterminado es `openai/gpt-6.2-sol`. Conecta OpenAI con `opencode auth login openai` y elige el inicio de sesion de ChatGPT; la autorizacion queda en la configuracion local de OpenCode. Ejecuta OpenCode `2.4.2` con `opencode serve --hostname 127.0.0.1 --port 4096`, pasando `OPENCODE_PASSWORD` al proceso y usando el mismo password en la API. No guardes claves de proveedor en el repositorio.
 
 `npm run db:generate` y `npm run db:migrate` cargan la configuración desde el `.env` de la raíz del repositorio. Para una demo mínima de gestión de proyectos basta con PostgreSQL, API y dashboard; planificar o ejecutar trabajo con agentes requiere OpenCode `2.4.2` y un proveedor/modelo configurado. Sin OpenCode, la API puede iniciar y mostrar `unavailable` en `/api/runtime/health`.
 
@@ -107,4 +107,4 @@ Los eventos `session.step.ended` y `session.step.failed` registran como máximo 
 
 Cuando el costo reportado o estimado alcanza el 80% del presupuesto, se registra una sola alerta. Al 100%, la API pausa la ejecución antes de asignar la siguiente tarea. El dashboard permite cancelar o aprobar un límite mayor (hasta 1000 USD) y reanudar las tareas pendientes. Las aprobaciones quedan registradas como eventos.
 
-El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.
+El documento de backlog es una referencia de alcance. Las tarifas del proveedor siguen sin definirse; el proyecto no inventa precios y marca como no disponibles los costos sin datos verificables.
