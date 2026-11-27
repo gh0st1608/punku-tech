@@ -5,6 +5,7 @@ import {
   ConflictException,
   Controller,
   Get,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -45,6 +46,16 @@ export class ExecutionsController {
   @Get(":id")
   get(@Param("id", new ParseUUIDPipe()) id: string) {
     return this.executions.get(id);
+  }
+
+  @Get(":id/tasks/:taskId")
+  async getTask(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Param("taskId", new ParseUUIDPipe()) taskId: string,
+  ) {
+    const task = await this.executions.getTask(id, taskId);
+    if (!task) throw new NotFoundException("Task not found");
+    return task;
   }
 
   @Post(":id/plan")

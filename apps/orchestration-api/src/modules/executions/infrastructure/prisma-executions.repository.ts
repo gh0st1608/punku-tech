@@ -7,6 +7,7 @@ import type {
   ExecutionRecord,
   PlannedTask,
   TaskRecord,
+  TaskDetails,
   UsageRecordForSummary,
 } from "@aief/contracts";
 import { agentIds } from "@aief/contracts";
@@ -45,6 +46,9 @@ function mapTask(row: Prisma.TaskGetPayload<Prisma.TaskDefaultArgs>): TaskRecord
   const acceptanceCriteria = Array.isArray(row.acceptanceCriteria)
     ? row.acceptanceCriteria.filter((value): value is string => typeof value === "string")
     : [];
+  const artifactPaths = Array.isArray(row.artifactPaths)
+    ? row.artifactPaths.filter((value): value is string => typeof value === "string")
+    : [];
 
   return {
     id: row.id,
@@ -56,6 +60,8 @@ function mapTask(row: Prisma.TaskGetPayload<Prisma.TaskDefaultArgs>): TaskRecord
     status: row.status as TaskRecord["status"],
     dependsOn,
     sessionId: row.sessionId,
+    summary: row.summary,
+    artifactPaths,
     startedAt: toIso(row.startedAt),
     finishedAt: toIso(row.finishedAt),
   };
@@ -134,6 +140,17 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
       tasks: row.tasks.map(mapTask),
       events: row.events.map(mapEvent),
     };
+  }
+
+  async findTaskDetails(executionId: string, taskId: string): Promise<TaskDetails | null> {
+    const task = await this.prisma.task.findFirst({ where: { id: taskId, executionId } });
+    if (!task) return null;
+    const events = await this.prisma.event.findMany({
+      where: { executionId, taskId },
+      orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+      take: 500,
+    });
+    return { ...mapTask(task), events: events.map(mapEvent) };
   }
 
   async exists(id: string): Promise<boolean> {
@@ -297,7 +314,12 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
-  async completeTask(executionId: string, taskId: string, finishedAt: Date): Promise<boolean> {
+  async completeTask(
+    executionId: string,
+    taskId: string,
+    finishedAt: Date,
+    deliverables: { summary: string | null; artifactPaths: string[] },
+  ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
         where: {
@@ -306,7 +328,12 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           status: TaskStatus.RUNNING,
           execution: { status: ExecutionStatus.RUNNING },
         },
-        data: { status: TaskStatus.COMPLETED, finishedAt },
+        data: {
+          status: TaskStatus.COMPLETED,
+          finishedAt,
+          summary: deliverables.summary,
+          artifactPaths: deliverables.artifactPaths,
+        },
       });
       if (result.count === 0) return false;
       const task = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
@@ -318,7 +345,7 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           taskId,
           agentId: task.agentId,
           sessionId: task.sessionId,
-          payload: {},
+          payload: { artifactCount: deliverables.artifactPaths.length },
         },
       });
       return true;

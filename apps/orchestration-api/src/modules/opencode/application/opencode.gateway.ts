@@ -23,6 +23,8 @@ export type OpenCodeSession = {
 
 export type OpenCodeAssistantResult = {
   finish: string | null;
+  summary: string | null;
+  artifactPaths: string[];
 };
 
 export type OpenCodeSessionEvent = {

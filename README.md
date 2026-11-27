@@ -74,10 +74,12 @@ La ruta de eventos devuelve el campo `eventId` del contrato compartido; eventos 
 
 El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la actividad de sesiones OpenCode en tiempo real.
 
+`GET /api/executions/:id/tasks/:taskId` devuelve el detalle de una tarea con sus eventos, el resumen final del agente y las rutas de archivos modificados. El resumen se limita a 4000 caracteres y aplica redacción de patrones habituales de credenciales; no se guardan mensajes de herramientas ni parches. Las rutas se guardan únicamente como paths relativos y se descartan rutas absolutas y nombres de archivos sensibles conocidos. Esta redacción es una defensa adicional y no reemplaza las reglas para que los agentes nunca escriban secretos en sus respuestas.
+
 ## Próximos cortes
 
 1. Agregar coordinación distribuida para ejecutar varias instancias de la API.
-2. Consultar resúmenes y entregables seguros por tarea y mostrarlos en el dashboard.
+2. Mostrar en el dashboard los resúmenes y entregables disponibles por tarea.
 3. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
 4. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
 

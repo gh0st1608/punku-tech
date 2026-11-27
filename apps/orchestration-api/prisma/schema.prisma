@@ -55,6 +55,8 @@ model Task {
   status      TaskStatus @default(PENDING)
   dependsOn   Json       @default("[]") @map("depends_on_json")
   sessionId   String?    @map("session_id")
+  summary     String?    @db.Text
+  artifactPaths Json     @default("[]") @map("artifact_paths_json")
   startedAt   DateTime?  @map("started_at")
   finishedAt  DateTime?  @map("finished_at")
   execution   Execution  @relation(fields: [executionId], references: [id], onDelete: Cascade)

@@ -9,6 +9,7 @@ import type {
   ExecutionRecord,
   PlannedTask,
   TaskRecord,
+  TaskDetails,
   UsageSummary,
 } from "@aief/contracts";
 import { agentIds } from "@aief/contracts";
@@ -16,6 +17,7 @@ import type { AppEnvironment } from "../../../config/app-environment";
 import { OpenCodeUnavailableError } from "../../opencode/application/opencode-unavailable.error";
 import type { OpenCodeGateway } from "../../opencode/application/opencode.gateway";
 import { ExecutionNotFoundError } from "./execution-not-found.error";
+import { sanitizeArtifactPaths, sanitizeTaskSummary } from "./task-deliverables";
 import { ExecutionPlanInvalidError } from "./execution-plan-invalid.error";
 import { ExecutionPlanningConflictError } from "./execution-planning-conflict.error";
 import type { EventCursor, ExecutionsRepository } from "./executions.repository";
@@ -162,6 +164,10 @@ export class ExecutionsService implements OnApplicationBootstrap {
     const execution = await this.repository.findDetails(id);
     if (!execution) throw new ExecutionNotFoundError();
     return execution;
+  }
+
+  getTask(executionId: string, taskId: string): Promise<TaskDetails | null> {
+    return this.repository.findTaskDetails(executionId, taskId);
   }
 
   async plan(id: string): Promise<ExecutionDetails> {
@@ -332,7 +338,10 @@ export class ExecutionsService implements OnApplicationBootstrap {
       await this.repository.failTaskAndExecution(executionId, task.id, new Date());
       return false;
     }
-    return this.repository.completeTask(executionId, task.id, new Date());
+    return this.repository.completeTask(executionId, task.id, new Date(), {
+      summary: sanitizeTaskSummary(result.summary),
+      artifactPaths: sanitizeArtifactPaths(result.artifactPaths),
+    });
   }
 
   private taskPrompt(task: TaskRecord): string {
