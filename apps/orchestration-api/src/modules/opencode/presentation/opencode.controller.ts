@@ -2,7 +2,9 @@ import { Body, Controller, Get, Inject, Post, ServiceUnavailableException } from
 import { OpenCodeUnavailableError } from "../application/opencode-unavailable.error";
 import { OPENCODE_GATEWAY } from "../application/opencode.gateway";
 import type { OpenCodeGateway } from "../application/opencode.gateway";
-import type { CreateOpenCodeSessionDto } from "./dto/create-opencode-session.dto";
+// Keep this as a runtime import so Nest's ValidationPipe receives the DTO class metadata.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { CreateOpenCodeSessionDto } from "./dto/create-opencode-session.dto";
 
 @Controller("runtime")
 export class OpenCodeController {

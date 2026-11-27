@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 coverage/
+artifacts/qa/
 .turbo/
 .pnpm-store/
 apps/*/generated/

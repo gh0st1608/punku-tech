@@ -5,6 +5,7 @@ import {
   ConflictException,
   Controller,
   Get,
+  Inject,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -18,9 +19,11 @@ import type { CreateExecutionRequest } from "@aief/contracts";
 import type { Observable } from "rxjs";
 import { defer, from, map, mergeMap, repeat, tap } from "rxjs";
 import type { Request } from "express";
-import type { ExecutionsService } from "../application/executions.service";
+import { ExecutionsService } from "../application/executions.service";
 import type { EventCursor } from "../application/executions.repository";
-import type { CreateExecutionDto } from "./dto/create-execution.dto";
+// Keep this as a runtime import so Nest's ValidationPipe receives the DTO class metadata.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { CreateExecutionDto } from "./dto/create-execution.dto";
 import { ExecutionExistsGuard } from "./execution-exists.guard";
 import { ExecutionPlanningConflictError } from "../application/execution-planning-conflict.error";
 import { ExecutionPlanInvalidError } from "../application/execution-plan-invalid.error";
@@ -31,7 +34,7 @@ type StreamRequest = Request<{ id: string }> & { eventCursor: EventCursor | null
 
 @Controller("executions")
 export class ExecutionsController {
-  constructor(private readonly executions: ExecutionsService) {}
+  constructor(@Inject(ExecutionsService) private readonly executions: ExecutionsService) {}
 
   @Post()
   create(@Body() body: CreateExecutionDto) {
