@@ -34,6 +34,8 @@ model Execution {
   status     ExecutionStatus @default(CREATED)
   budgetUsd  Decimal?        @db.Decimal(12, 6) @map("budget_usd")
   workspacePath String?      @map("workspace_path") @db.Text
+  runnerId   String?         @map("runner_id")
+  runnerLeaseUntil DateTime? @map("runner_lease_until")
   startedAt  DateTime?       @map("started_at")
   finishedAt DateTime?       @map("finished_at")
   createdAt  DateTime        @default(now()) @map("created_at")
@@ -41,6 +43,7 @@ model Execution {
   events     Event[]
   usage      UsageRecord[]
 
+  @@index([status, runnerLeaseUntil])
   @@map("executions")
 }
 

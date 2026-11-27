@@ -228,11 +228,20 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
-  async startIfPlanned(id: string, workspacePath: string, startedAt: Date): Promise<boolean> {
+  async startIfPlanned(
+    id: string,
+    claim: { workspacePath: string; runnerId: string; startedAt: Date; leaseUntil: Date },
+  ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({
         where: { id, status: ExecutionStatus.PLANNED },
-        data: { status: ExecutionStatus.RUNNING, startedAt, workspacePath },
+        data: {
+          status: ExecutionStatus.RUNNING,
+          startedAt: claim.startedAt,
+          workspacePath: claim.workspacePath,
+          runnerId: claim.runnerId,
+          runnerLeaseUntil: claim.leaseUntil,
+        },
       });
       if (result.count === 0) return false;
       await tx.event.create({
@@ -247,6 +256,42 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
+  async claimRunningExecution(
+    executionId: string,
+    runnerId: string,
+    now: Date,
+    leaseUntil: Date,
+  ): Promise<boolean> {
+    const result = await this.prisma.execution.updateMany({
+      where: {
+        id: executionId,
+        status: ExecutionStatus.RUNNING,
+        OR: [{ runnerLeaseUntil: null }, { runnerLeaseUntil: { lt: now } }],
+      },
+      data: { runnerId, runnerLeaseUntil: leaseUntil },
+    });
+    return result.count > 0;
+  }
+
+  async renewExecutionLease(
+    executionId: string,
+    runnerId: string,
+    leaseUntil: Date,
+  ): Promise<boolean> {
+    const result = await this.prisma.execution.updateMany({
+      where: { id: executionId, status: ExecutionStatus.RUNNING, runnerId },
+      data: { runnerLeaseUntil: leaseUntil },
+    });
+    return result.count > 0;
+  }
+
+  async releaseExecutionLease(executionId: string, runnerId: string): Promise<void> {
+    await this.prisma.execution.updateMany({
+      where: { id: executionId, runnerId },
+      data: { runnerId: null, runnerLeaseUntil: null },
+    });
+  }
+
   async workspacePath(id: string): Promise<string | null> {
     const row = await this.prisma.execution.findUnique({
       where: { id },
@@ -255,14 +300,19 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     return row?.workspacePath ?? null;
   }
 
-  async startTaskIfPending(executionId: string, taskId: string, startedAt: Date): Promise<boolean> {
+  async startTaskIfPending(
+    executionId: string,
+    taskId: string,
+    runnerId: string,
+    startedAt: Date,
+  ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
         where: {
           id: taskId,
           executionId,
           status: TaskStatus.PENDING,
-          execution: { status: ExecutionStatus.RUNNING },
+          execution: { status: ExecutionStatus.RUNNING, runnerId },
         },
         data: { status: TaskStatus.RUNNING, startedAt },
       });
@@ -285,6 +335,7 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
   async attachTaskSession(
     executionId: string,
     taskId: string,
+    runnerId: string,
     sessionId: string,
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
@@ -293,7 +344,7 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           id: taskId,
           executionId,
           status: TaskStatus.RUNNING,
-          execution: { status: ExecutionStatus.RUNNING },
+          execution: { status: ExecutionStatus.RUNNING, runnerId },
         },
         data: { sessionId },
       });
@@ -317,8 +368,11 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
   async completeTask(
     executionId: string,
     taskId: string,
-    finishedAt: Date,
-    deliverables: { summary: string | null; artifactPaths: string[] },
+    completion: {
+      runnerId: string;
+      finishedAt: Date;
+      deliverables: { summary: string | null; artifactPaths: string[] };
+    },
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
@@ -326,13 +380,13 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           id: taskId,
           executionId,
           status: TaskStatus.RUNNING,
-          execution: { status: ExecutionStatus.RUNNING },
+          execution: { status: ExecutionStatus.RUNNING, runnerId: completion.runnerId },
         },
         data: {
           status: TaskStatus.COMPLETED,
-          finishedAt,
-          summary: deliverables.summary,
-          artifactPaths: deliverables.artifactPaths,
+          finishedAt: completion.finishedAt,
+          summary: completion.deliverables.summary,
+          artifactPaths: completion.deliverables.artifactPaths,
         },
       });
       if (result.count === 0) return false;
@@ -345,30 +399,30 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           taskId,
           agentId: task.agentId,
           sessionId: task.sessionId,
-          payload: { artifactCount: deliverables.artifactPaths.length },
+          payload: { artifactCount: completion.deliverables.artifactPaths.length },
         },
       });
       return true;
     });
   }
 
-  async failTaskAndExecution(executionId: string, taskId: string, finishedAt: Date): Promise<void> {
+  async failTaskAndExecution(
+    executionId: string,
+    taskId: string,
+    runnerId: string,
+    finishedAt: Date,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const task = await tx.task.findUnique({ where: { id: taskId } });
+      const task = await tx.task.findFirst({ where: { id: taskId, executionId } });
       if (!task) return;
-      const failed = await tx.task.updateMany({
-        where: {
-          id: taskId,
-          executionId,
-          status: TaskStatus.RUNNING,
-          execution: { status: ExecutionStatus.RUNNING },
-        },
-        data: { status: TaskStatus.FAILED, finishedAt },
-      });
-      if (failed.count === 0) return;
-      await tx.execution.updateMany({
-        where: { id: executionId, status: ExecutionStatus.RUNNING },
+      const failedExecution = await tx.execution.updateMany({
+        where: { id: executionId, status: ExecutionStatus.RUNNING, runnerId },
         data: { status: ExecutionStatus.FAILED, finishedAt },
+      });
+      if (failedExecution.count === 0) return;
+      await tx.task.updateMany({
+        where: { id: taskId, executionId, status: TaskStatus.RUNNING },
+        data: { status: TaskStatus.FAILED, finishedAt },
       });
       await tx.task.updateMany({
         where: { executionId, status: TaskStatus.PENDING },
@@ -396,14 +450,18 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
-  async completeExecutionIfTasksDone(executionId: string, finishedAt: Date): Promise<void> {
+  async completeExecutionIfTasksDone(
+    executionId: string,
+    runnerId: string,
+    finishedAt: Date,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const unfinishedCount = await tx.task.count({
         where: { executionId, status: { not: TaskStatus.COMPLETED } },
       });
       if (unfinishedCount !== 0) return;
       const result = await tx.execution.updateMany({
-        where: { id: executionId, status: ExecutionStatus.RUNNING },
+        where: { id: executionId, status: ExecutionStatus.RUNNING, runnerId },
         data: { status: ExecutionStatus.COMPLETED, finishedAt },
       });
       if (result.count === 0) return;
@@ -418,14 +476,18 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
   }
 
-  async failExecutionIfActive(executionId: string, finishedAt: Date): Promise<void> {
+  async failExecutionIfActive(
+    executionId: string,
+    runnerId: string,
+    finishedAt: Date,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const runningTasks = await tx.task.findMany({
         where: { executionId, status: TaskStatus.RUNNING },
         select: { id: true, sessionId: true, agentId: true },
       });
       const result = await tx.execution.updateMany({
-        where: { id: executionId, status: ExecutionStatus.RUNNING },
+        where: { id: executionId, status: ExecutionStatus.RUNNING, runnerId },
         data: { status: ExecutionStatus.FAILED, finishedAt },
       });
       if (result.count === 0) return;
@@ -521,7 +583,12 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
             notIn: [ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED],
           },
         },
-        data: { status: ExecutionStatus.CANCELLED, finishedAt },
+        data: {
+          status: ExecutionStatus.CANCELLED,
+          finishedAt,
+          runnerId: null,
+          runnerLeaseUntil: null,
+        },
       });
       if (result.count === 0) return null;
 

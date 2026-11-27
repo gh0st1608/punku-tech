@@ -70,7 +70,7 @@ La ruta de eventos devuelve el campo `eventId` del contrato compartido; eventos 
 
 `POST /api/executions/:id/plan` crea una sesión temporal con el agente `orchestrator`, solicita un plan JSON y valida IDs de agentes, criterios de aceptación y dependencias sin ciclos. Persiste las tareas como `PLANNED` y publica `EXECUTION_PLAN_CREATED`. Un error de OpenCode o de validación deja la ejecución como `FAILED` y registra un evento sin copiar el mensaje interno.
 
-`POST /api/executions/:id/start` solo inicia ejecuciones con plan guardado. Crea un worktree Git aislado y ejecuta una sesión OpenCode por tarea, una a la vez. Una tarea comienza cuando todas sus dependencias están `COMPLETED`; si una falla, las pendientes quedan `BLOCKED` y la ejecución queda `FAILED`. Cancelar marca tareas no terminales como `CANCELLED` e intenta interrumpir sus sesiones. Las ejecuciones no se integran ni publican automáticamente. Al iniciar, la API reanuda ejecuciones `RUNNING`, verifica el worktree y comprueba el historial de OpenCode antes de volver a enviar la tarea. La coordinación distribuida para varias instancias de API sigue pendiente; el MVP debe ejecutarse con una sola instancia.
+`POST /api/executions/:id/start` solo inicia ejecuciones con plan guardado. Crea un worktree Git aislado y ejecuta una sesión OpenCode por tarea, una a la vez. Una tarea comienza cuando todas sus dependencias están `COMPLETED`; si una falla, las pendientes quedan `BLOCKED` y la ejecución queda `FAILED`. Cancelar marca tareas no terminales como `CANCELLED` e intenta interrumpir sus sesiones. Las ejecuciones no se integran ni publican automáticamente. Al iniciar, la API reanuda ejecuciones `RUNNING`, verifica el worktree y comprueba el historial de OpenCode antes de volver a enviar la tarea. Varias instancias comparten un lease de ejecución persistido en PostgreSQL: el propietario lo renueva cada 10 segundos y deja de mutar la ejecución si pierde el lease; tras 30 segundos sin renovación, otra instancia puede reclamar la ejecución.
 
 El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la actividad de sesiones OpenCode en tiempo real.
 
@@ -78,9 +78,8 @@ El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la 
 
 ## Próximos cortes
 
-1. Agregar coordinación distribuida para ejecutar varias instancias de la API.
-2. Mostrar en el dashboard los resúmenes y entregables disponibles por tarea.
-3. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
-4. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
+1. Mostrar en el dashboard los resúmenes y entregables disponibles por tarea.
+2. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
+3. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
 
 El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.
