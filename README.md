@@ -67,6 +67,7 @@ Para añadir costo y entregables de una ejecución al resumen, configura `AIEF_E
 - `GET /api/executions/:id`
 - `POST /api/executions/:id/plan`
 - `POST /api/executions/:id/start`
+- `POST /api/executions/:id/approve-budget` with `{ "newBudgetUsd": 25 }`
 - `POST /api/executions/:id/cancel`
 - `GET /api/executions/:id/events`
 - `GET /api/executions/:id/stream` (SSE)
@@ -103,5 +104,7 @@ Los eventos `session.step.ended` y `session.step.failed` registran como máximo 
 ## Próximos cortes
 
 1. Resolver las vulnerabilidades altas reportadas por la auditoría de dependencias de Prisma y volver a ejecutar el Quality Gate.
+
+Cuando el costo reportado o estimado alcanza el 80% del presupuesto, se registra una sola alerta. Al 100%, la API pausa la ejecución antes de asignar la siguiente tarea. El dashboard permite cancelar o aprobar un límite mayor (hasta 1000 USD) y reanudar las tareas pendientes. Las aprobaciones quedan registradas como eventos.
 
 El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.

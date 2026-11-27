@@ -146,3 +146,46 @@ test("creates a project from the dashboard", async ({ page }) => {
   await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
   expect(projects).toHaveLength(1);
 });
+
+test("approves a higher budget and resumes a paused execution", async ({ page }) => {
+  let currentExecution = { ...execution, status: "PAUSED_BUDGET", budgetUsd: 10 };
+  await page.route("http://127.0.0.1:3000/api/**", async (route) => {
+    const { pathname } = new URL(route.request().url());
+    if (pathname.endsWith("/stream")) {
+      await route.abort();
+      return;
+    }
+    if (pathname === "/api/executions" && route.request().method() === "GET") {
+      await route.fulfill({ json: [currentExecution] });
+      return;
+    }
+    if (pathname === `/api/executions/${executionId}/approve-budget`) {
+      const body = route.request().postDataJSON() as { newBudgetUsd: number };
+      currentExecution = { ...currentExecution, status: "RUNNING", budgetUsd: body.newBudgetUsd };
+      await route.fulfill({ status: 201, json: currentExecution });
+      return;
+    }
+    if (pathname === `/api/executions/${executionId}`) {
+      await route.fulfill({ json: { ...currentExecution, tasks: [task], events: [event] } });
+      return;
+    }
+    if (pathname === `/api/executions/${executionId}/events`) {
+      await route.fulfill({ json: [event] });
+      return;
+    }
+    if (pathname === `/api/executions/${executionId}/usage`) {
+      await route.fulfill({ json: usage });
+      return;
+    }
+    await route.fulfill({ status: 404, json: { message: "Not found" } });
+  });
+
+  await page.goto("/");
+  await expect(page.getByText("Pausada por presupuesto").first()).toBeVisible();
+  await page.getByLabel("Nuevo límite de presupuesto en USD").fill("25");
+  await page.getByRole("button", { name: "Aprobar y reanudar" }).click();
+
+  await expect(page.getByText("En ejecución").first()).toBeVisible();
+  await expect(page.getByText("Presupuesto alcanzado")).toHaveCount(0);
+  expect(currentExecution.budgetUsd).toBe(25);
+});

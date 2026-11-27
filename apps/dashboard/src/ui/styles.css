@@ -1498,6 +1498,75 @@ p {
   }
 }
 
+.budget-approval-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto auto;
+  align-items: end;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: 14px;
+  background: rgba(234, 179, 8, 0.07);
+}
+
+.budget-approval-panel strong {
+  color: #fef3c7;
+  font-size: 14px;
+}
+
+.budget-approval-panel p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.budget-approval-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.budget-approval-panel input {
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-1);
+  font: inherit;
+}
+
+.budget-approval-panel button {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  color: #111827;
+  background: #facc15;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.budget-approval-panel button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.budget-approval-panel .budget-cancel-button {
+  color: #e5e7eb;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+}
+
+.budget-approval-panel [role="alert"] {
+  grid-column: 1 / -1;
+  color: #fca5a5;
+  font-size: 12px;
+}
+
 .usage-panel {
   margin: 15px 0 0;
   padding: 17px 18px 14px;
@@ -1703,6 +1772,9 @@ p {
   font-size: 9px;
 }
 @media (max-width: 680px) {
+  .budget-approval-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .usage-panel {
     padding: 14px 12px 11px;
   }

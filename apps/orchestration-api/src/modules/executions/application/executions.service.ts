@@ -358,8 +358,22 @@ export class ExecutionsService implements OnApplicationBootstrap {
         await this.repository.completeExecutionIfTasksDone(executionId, this.runnerId, new Date());
         return;
       }
+      if (!runningTask && (await this.pauseForBudgetIfNeeded(executionId, execution.budgetUsd)))
+        return;
       if (!(await this.executeTask(executionId, task, workspacePath, lease))) return;
     }
+  }
+
+  private async pauseForBudgetIfNeeded(
+    executionId: string,
+    budgetUsd: number | null,
+  ): Promise<boolean> {
+    if (budgetUsd === null) return false;
+    const usage = summarizeUsage(await this.repository.listUsage(executionId));
+    const spentUsd = (usage.reportedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0);
+    return (
+      (await this.repository.enforceBudgetLimit(executionId, this.runnerId, spentUsd)) === "PAUSED"
+    );
   }
 
   private nextRunnableTask(tasks: TaskRecord[]): TaskRecord | null {
@@ -501,6 +515,16 @@ export class ExecutionsService implements OnApplicationBootstrap {
       );
     }
     return cancelled.execution;
+  }
+
+  async approveBudget(id: string, newBudgetUsd: number): Promise<ExecutionRecord> {
+    const approved = await this.repository.approveBudget(id, newBudgetUsd);
+    if (!approved)
+      throw new ExecutionPlanningConflictError(
+        "Execution must be paused at its budget limit and the approved limit must be higher.",
+      );
+    this.runInBackground(id);
+    return this.getRecordOrThrow(id);
   }
 
   async events(id: string): Promise<DomainEvent[]> {

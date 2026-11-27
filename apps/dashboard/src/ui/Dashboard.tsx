@@ -9,6 +9,8 @@ import type {
   UsageSummary,
 } from "@aief/contracts";
 import {
+  approveExecutionBudget,
+  cancelExecution,
   createExecutionEventSource,
   getExecution,
   getTaskDetails,
@@ -35,6 +37,9 @@ const eventTypes = [
   "EXECUTION_FAILED",
   "EXECUTION_COMPLETED",
   "EXECUTION_CANCELLED",
+  "EXECUTION_BUDGET_WARNING",
+  "EXECUTION_BUDGET_PAUSED",
+  "EXECUTION_BUDGET_APPROVED",
   "TASK_STARTED",
   "TASK_SESSION_CREATED",
   "TASK_COMPLETED",
@@ -58,6 +63,7 @@ const executionStatusNames: Record<string, string> = {
   PLANNING: "Planificando",
   PLANNED: "Plan lista",
   RUNNING: "En ejecución",
+  PAUSED_BUDGET: "Pausada por presupuesto",
   VALIDATING: "Validando",
   COMPLETED: "Completada",
   FAILED: "Fallida",
@@ -81,6 +87,9 @@ const eventNames: Record<string, string> = {
   EXECUTION_FAILED: "Ejecución fallida",
   EXECUTION_COMPLETED: "Ejecución completada",
   EXECUTION_CANCELLED: "Ejecución cancelada",
+  EXECUTION_BUDGET_WARNING: "Alerta de presupuesto al 80%",
+  EXECUTION_BUDGET_PAUSED: "Ejecución pausada por presupuesto",
+  EXECUTION_BUDGET_APPROVED: "Nuevo presupuesto aprobado",
   TASK_STARTED: "Tarea iniciada",
   TASK_SESSION_CREATED: "Sesión del agente creada",
   TASK_COMPLETED: "Tarea completada",
@@ -131,6 +140,7 @@ function timeAgo(value: string): string {
 
 function statusTone(status: string): string {
   if (["RUNNING", "PLANNING", "VALIDATING"].includes(status)) return "active";
+  if (status === "PAUSED_BUDGET") return "muted";
   if (["COMPLETED", "PLANNED"].includes(status)) return "success";
   if (["FAILED", "BLOCKED"].includes(status)) return "danger";
   if (status === "CANCELLED") return "muted";
@@ -482,6 +492,80 @@ function useTaskSelection(activeId: string, setError: (message: string) => void)
   return { taskDetails, selectedTaskId, setSelectedTaskId, setTaskDetails, openTask };
 }
 
+function BudgetApprovalPanel({
+  execution,
+  onApproved,
+  onCancelled,
+}: {
+  execution: ExecutionRecord;
+  onApproved: () => Promise<void>;
+  onCancelled: () => Promise<void>;
+}) {
+  const [newBudgetUsd, setNewBudgetUsd] = useState(
+    Math.min(1000, Number(((execution.budgetUsd ?? 0) + 10).toFixed(2))),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  if (execution.status !== "PAUSED_BUDGET") return null;
+
+  return (
+    <form
+      className="budget-approval-panel"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError("");
+        void approveExecutionBudget(execution.id, newBudgetUsd)
+          .then(onApproved)
+          .catch((failure: unknown) =>
+            setError(failure instanceof Error ? failure.message : "No se pudo aprobar el límite."),
+          )
+          .finally(() => setSaving(false));
+      }}
+    >
+      <div>
+        <strong>Presupuesto alcanzado</strong>
+        <p>La ejecución está pausada. Aumenta el límite para reanudar las tareas pendientes.</p>
+      </div>
+      <label>
+        Nuevo límite (USD)
+        <input
+          aria-label="Nuevo límite de presupuesto en USD"
+          type="number"
+          min={Number(((execution.budgetUsd ?? 0) + 0.01).toFixed(2))}
+          max="1000"
+          step="0.01"
+          value={newBudgetUsd}
+          onChange={(event) => setNewBudgetUsd(Number(event.target.value))}
+          required
+        />
+      </label>
+      <button type="submit" disabled={saving || newBudgetUsd <= (execution.budgetUsd ?? 0)}>
+        {saving ? "Reanudando…" : "Aprobar y reanudar"}
+      </button>
+      <button
+        className="budget-cancel-button"
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          setSaving(true);
+          setError("");
+          void cancelExecution(execution.id)
+            .then(onCancelled)
+            .catch((failure: unknown) =>
+              setError(failure instanceof Error ? failure.message : "No se pudo cancelar."),
+            )
+            .finally(() => setSaving(false));
+        }}
+      >
+        Cancelar ejecución
+      </button>
+      {error ? <span role="alert">{error}</span> : null}
+    </form>
+  );
+}
+
 export function Dashboard() {
   const [error, setError] = useState("");
   const catalog = useExecutionCatalog(setError);
@@ -687,6 +771,16 @@ export function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                <BudgetApprovalPanel
+                  execution={activeDetails}
+                  onApproved={async () => {
+                    await snapshot.refreshSnapshot(activeDetails.id);
+                  }}
+                  onCancelled={async () => {
+                    await snapshot.refreshSnapshot(activeDetails.id);
+                  }}
+                />
 
                 <UsagePanel usage={snapshot.usage} />
 

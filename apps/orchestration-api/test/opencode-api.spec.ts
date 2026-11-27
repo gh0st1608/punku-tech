@@ -12,6 +12,10 @@ import { ProjectsService } from "../src/modules/projects/application/projects.se
 import { ProjectsController } from "../src/modules/projects/presentation/projects.controller";
 import request from "supertest";
 
+const sampleExecutionId = "2da9a438-7fdc-4318-9caf-4894b73ef13c";
+const sampleExecutionRequirement = "Create a sample project.";
+const sampleTimestamp = "2026-11-27T10:00:00.000Z";
+
 describe("OpenCode REST API", () => {
   let app: INestApplication;
   const gateway = {
@@ -21,6 +25,7 @@ describe("OpenCode REST API", () => {
   } as unknown as OpenCodeGateway;
   const executions = {
     create: jest.fn(),
+    approveBudget: jest.fn(),
   } as unknown as ExecutionsService;
   const projects = {
     create: jest.fn(),
@@ -101,16 +106,16 @@ describe("OpenCode REST API", () => {
   });
 
   it("validates and trims execution creation requests", async () => {
-    const requirement = "Create a sample project.";
+    const requirement = sampleExecutionRequirement;
     const execution: ExecutionRecord = {
-      id: "2da9a438-7fdc-4318-9caf-4894b73ef13c",
+      id: sampleExecutionId,
       name: requirement,
       requirement,
       status: "CREATED",
       budgetUsd: null,
       startedAt: null,
       finishedAt: null,
-      createdAt: "2026-11-27T10:00:00.000Z",
+      createdAt: sampleTimestamp,
     };
     jest.mocked(executions.create).mockResolvedValue(execution);
 
@@ -134,6 +139,32 @@ describe("OpenCode REST API", () => {
       .expect(400);
 
     expect(executions.create).not.toHaveBeenCalled();
+  });
+
+  it("approves a higher execution budget and validates the request body", async () => {
+    const executionId = sampleExecutionId;
+    const execution: ExecutionRecord = {
+      id: executionId,
+      name: "Sample execution",
+      requirement: sampleExecutionRequirement,
+      status: "RUNNING",
+      budgetUsd: 25,
+      startedAt: sampleTimestamp,
+      finishedAt: null,
+      createdAt: sampleTimestamp,
+    };
+    jest.mocked(executions.approveBudget).mockResolvedValue(execution);
+
+    await request(app.getHttpServer())
+      .post(`/api/executions/${executionId}/approve-budget`)
+      .send({ newBudgetUsd: 25 })
+      .expect(201, execution);
+
+    expect(executions.approveBudget).toHaveBeenCalledWith(execution.id, 25);
+    await request(app.getHttpServer())
+      .post(`/api/executions/${executionId}/approve-budget`)
+      .send({ newBudgetUsd: 0, unexpected: true })
+      .expect(400);
   });
 
   it("creates a project with the required fields and rejects additional fields", async () => {
