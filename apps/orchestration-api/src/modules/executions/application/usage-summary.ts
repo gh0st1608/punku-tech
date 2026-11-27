@@ -1,6 +1,7 @@
 import type {
   CostDisplayStatus,
   UsageBreakdown,
+  CompletedTaskModelCost,
   UsageRecordForSummary,
   UsageSummary,
 } from "@aief/contracts";
@@ -58,7 +59,53 @@ function groupRows(
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-export function summarizeUsage(rows: UsageRecordForSummary[]): UsageSummary {
+function completedTaskModelCosts(
+  rows: UsageRecordForSummary[],
+  completedTaskIds: Set<string>,
+): CompletedTaskModelCost[] {
+  const groups = new Map<string, { label: string; rows: UsageRecordForSummary[] }>();
+  for (const row of rows) {
+    if (!row.taskId || !completedTaskIds.has(row.taskId)) continue;
+    const provider = row.provider ?? "unknown-provider";
+    const model = row.model ?? "unknown-model";
+    const key = `${provider}/${model}`;
+    const group = groups.get(key) ?? {
+      label: `${row.provider ?? "Proveedor desconocido"} / ${row.model ?? "Modelo desconocido"}`,
+      rows: [],
+    };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+
+  return [...groups.entries()]
+    .map(([key, group]) => {
+      const completedTasks = new Set(group.rows.map((row) => row.taskId)).size;
+      const unavailableCostTurns = group.rows.filter(
+        (row) => row.reportedCostUsd === null && row.estimatedCostUsd === null,
+      ).length;
+      const costUsd =
+        unavailableCostTurns === 0
+          ? group.rows.reduce(
+              (total, row) => total + (row.reportedCostUsd ?? row.estimatedCostUsd ?? 0),
+              0,
+            )
+          : null;
+      return {
+        key,
+        label: group.label,
+        completedTasks,
+        costUsd,
+        costPerCompletedTaskUsd: costUsd === null ? null : costUsd / completedTasks,
+        unavailableCostTurns,
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export function summarizeUsage(
+  rows: UsageRecordForSummary[],
+  completedTaskIds: Set<string> = new Set(),
+): UsageSummary {
   const rowsWithTokens = rows.filter((row) => tokenFields.some((field) => row[field] !== null));
   const completeTokenRows = rows.filter(
     (row) => row.inputTokens !== null && row.outputTokens !== null,
@@ -102,5 +149,6 @@ export function summarizeUsage(rows: UsageRecordForSummary[]): UsageSummary {
         label: `${row.provider ?? "Proveedor desconocido"} / ${row.model ?? "Modelo desconocido"}`,
       };
     }),
+    completedTaskCostsByModel: completedTaskModelCosts(rows, completedTaskIds),
   };
 }

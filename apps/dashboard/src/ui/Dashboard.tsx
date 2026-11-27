@@ -272,6 +272,171 @@ function UsagePanel({ usage }: { usage: UsageSummary | null }) {
   );
 }
 
+function ModelComparisonPanel({
+  executionId,
+  usage,
+}: {
+  executionId: string;
+  usage: UsageSummary | null;
+}) {
+  const [filteredUsage, setFilteredUsage] = useState(usage);
+  const [model, setModel] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => setFilteredUsage(usage), [executionId, usage]);
+
+  const applyFilters = async () => {
+    if (from && to && from > to) {
+      setError("La fecha inicial debe ser anterior o igual a la final.");
+      return;
+    }
+    setError("");
+    try {
+      setFilteredUsage(
+        await getUsage(executionId, undefined, {
+          from: from || undefined,
+          to: to || undefined,
+          model: model || undefined,
+        }),
+      );
+    } catch {
+      setError("No se pudieron aplicar los filtros.");
+    }
+  };
+
+  const exportCsv = () => {
+    if (!filteredUsage) return;
+    const costs = new Map(filteredUsage.completedTaskCostsByModel.map((item) => [item.key, item]));
+    const rows = [
+      [
+        "Modelo",
+        "Turnos",
+        "Tokens entrada",
+        "Tokens salida",
+        "Costo reportado USD",
+        "Costo estimado USD",
+        "Tareas completadas con uso",
+        "Costo por tarea completada USD",
+        "Turnos sin costo",
+      ],
+      ...filteredUsage.byModel.map((row) => {
+        const cost = costs.get(row.key);
+        return [
+          row.label,
+          row.turns,
+          row.inputTokens ?? "",
+          row.outputTokens ?? "",
+          row.reportedCostUsd ?? "",
+          row.estimatedCostUsd ?? "",
+          cost?.completedTasks ?? 0,
+          cost?.costPerCompletedTaskUsd ?? "",
+          row.unavailableCostTurns,
+        ];
+      }),
+    ];
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","))
+      .join("\r\n");
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `comparacion-modelos-${executionId.slice(0, 8)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <section className="model-comparison-panel" aria-label="Comparación de modelos">
+      <div className="usage-heading">
+        <div>
+          <span className="section-kicker">COMPARACIÓN</span>
+          <h2>Métricas por modelo</h2>
+        </div>
+      </div>
+      <div className="model-filter-row">
+        <label>
+          Modelo
+          <select value={model} onChange={(event) => setModel(event.target.value)}>
+            <option value="">Todos</option>
+            {(usage?.byModel ?? []).map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Desde
+          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+        </label>
+        <label>
+          Hasta
+          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+        </label>
+        <button type="button" onClick={() => void applyFilters()}>
+          Aplicar
+        </button>
+        <button type="button" onClick={exportCsv} disabled={!filteredUsage?.byModel.length}>
+          Exportar CSV
+        </button>
+      </div>
+      {error ? (
+        <p className="usage-filter-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {filteredUsage?.byModel.length ? (
+        <div className="usage-table-wrap">
+          <table className="usage-table model-comparison-table">
+            <thead>
+              <tr>
+                <th>Modelo</th>
+                <th>Turnos</th>
+                <th>Input</th>
+                <th>Output</th>
+                <th>Reportado</th>
+                <th>Estimado</th>
+                <th>Tareas completadas con uso</th>
+                <th>Costo por tarea</th>
+                <th>Sin tarifa</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredUsage.byModel.map((row) => {
+                const cost = filteredUsage.completedTaskCostsByModel.find(
+                  (item) => item.key === row.key,
+                );
+                return (
+                  <tr key={row.key}>
+                    <td>
+                      <strong>{row.label}</strong>
+                    </td>
+                    <td>{row.turns}</td>
+                    <td>{formatTokens(row.inputTokens)}</td>
+                    <td>{formatTokens(row.outputTokens)}</td>
+                    <td>{formatUsd(row.reportedCostUsd)}</td>
+                    <td>{formatUsd(row.estimatedCostUsd)}</td>
+                    <td>{cost?.completedTasks ?? 0}</td>
+                    <td>{formatUsd(cost?.costPerCompletedTaskUsd ?? null)}</td>
+                    <td>{row.unavailableCostTurns}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="usage-empty">No hay uso de modelos para estos filtros.</p>
+      )}
+      <p className="usage-empty">
+        El costo por tarea considera tareas completadas con registros de uso; queda vacío si algún
+        costo del modelo no está disponible.
+      </p>
+    </section>
+  );
+}
+
 function UsageMetric({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="usage-token-card">
@@ -783,6 +948,7 @@ export function Dashboard() {
                 />
 
                 <UsagePanel usage={snapshot.usage} />
+                <ModelComparisonPanel executionId={activeDetails.id} usage={snapshot.usage} />
 
                 <div className="section-heading">
                   <div>

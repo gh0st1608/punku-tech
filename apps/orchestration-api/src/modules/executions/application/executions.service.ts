@@ -532,9 +532,26 @@ export class ExecutionsService implements OnApplicationBootstrap {
     return this.repository.listEvents(id, null, 1000);
   }
 
-  async usage(id: string): Promise<UsageSummary> {
-    await this.ensureExists(id);
-    return summarizeUsage(await this.repository.listUsage(id));
+  async usage(
+    id: string,
+    filters: { from?: string; to?: string; model?: string } = {},
+  ): Promise<UsageSummary> {
+    const execution = await this.get(id);
+    const completedTaskIds = new Set(
+      execution.tasks.filter((task) => task.status === "COMPLETED").map((task) => task.id),
+    );
+    const rows = (await this.repository.listUsage(id)).filter((row) => {
+      if (
+        filters.model &&
+        `${row.provider ?? "unknown-provider"}/${row.model ?? "unknown-model"}` !== filters.model
+      )
+        return false;
+      const recordedAt = row.recordedAt.slice(0, 10);
+      if (filters.from && recordedAt < filters.from) return false;
+      if (filters.to && recordedAt > filters.to) return false;
+      return true;
+    });
+    return summarizeUsage(rows, completedTaskIds);
   }
 
   eventsAfter(id: string, cursor: EventCursor | null, limit: number): Promise<DomainEvent[]> {

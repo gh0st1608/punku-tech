@@ -1,6 +1,7 @@
 import type { MessageEvent } from "@nestjs/common";
 import {
   BadGatewayException,
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -10,6 +11,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   Sse,
   ServiceUnavailableException,
@@ -118,8 +120,27 @@ export class ExecutionsController {
   }
 
   @Get(":id/usage")
-  usage(@Param("id", new ParseUUIDPipe()) id: string) {
-    return this.executions.usage(id);
+  usage(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("model") model?: string,
+  ) {
+    for (const date of [from, to]) {
+      const parsed = date ? new Date(`${date}T00:00:00.000Z`) : null;
+      if (
+        date &&
+        (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          !parsed ||
+          Number.isNaN(parsed.getTime()) ||
+          parsed.toISOString().slice(0, 10) !== date)
+      ) {
+        throw new BadRequestException("Usage dates must use the YYYY-MM-DD format.");
+      }
+    }
+    if (from && to && from > to)
+      throw new BadRequestException("The start date must not be after the end date.");
+    return this.executions.usage(id, { from, to, model });
   }
 
   @Sse(":id/stream")
