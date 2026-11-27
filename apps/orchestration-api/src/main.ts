@@ -1,11 +1,14 @@
 import "reflect-metadata";
-import "dotenv/config";
+import { config as loadDotEnv } from "dotenv";
+import { resolve } from "node:path";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { AppEnvironment } from "./config/app-environment";
 import { APP_ENVIRONMENT } from "./config/app-environment";
 import { AppModule } from "./modules/app.module";
 import { ExecutionNotFoundFilter } from "./modules/executions/presentation/execution-not-found.filter";
+
+loadDotEnv({ path: resolve(__dirname, "../../../.env") });
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);

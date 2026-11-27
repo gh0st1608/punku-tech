@@ -2,15 +2,17 @@ import { expect, test } from "@playwright/test";
 
 const executionId = "2da9a438-7fdc-4318-9caf-4894b73ef13c";
 const taskId = "030247a4-fd3a-4567-9c10-27472538f509";
+const demoTimestamp = "2026-11-27T10:00:00.000Z";
+const taskFinishedAt = "2026-11-27T10:02:00.000Z";
 const execution = {
   id: executionId,
   name: "QA demo",
   requirement: "Validar la vista de ejecución, uso y entregables.",
   status: "RUNNING",
   budgetUsd: null,
-  startedAt: "2026-11-27T10:00:00.000Z",
+  startedAt: demoTimestamp,
   finishedAt: null,
-  createdAt: "2026-11-27T10:00:00.000Z",
+  createdAt: demoTimestamp,
 };
 const task = {
   id: taskId,
@@ -25,13 +27,13 @@ const task = {
   summary: "Se verificó la respuesta del servicio.",
   artifactPaths: ["reports/api-summary.md"],
   startedAt: "2026-11-27T10:01:00.000Z",
-  finishedAt: "2026-11-27T10:02:00.000Z",
+  finishedAt: taskFinishedAt,
 };
 const event = {
   eventId: "event-demo",
   executionId,
   eventType: "TASK_COMPLETED",
-  occurredAt: "2026-11-27T10:02:00.000Z",
+  occurredAt: taskFinishedAt,
   source: "orchestration-api",
   agentId: "backend",
   taskId,
@@ -99,4 +101,48 @@ test("loads an execution, its usage and a task deliverable", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Resumen del agente" })).toBeVisible();
   await expect(page.getByText("Se verificó la respuesta del servicio.")).toBeVisible();
   await expect(page.getByText("reports/api-summary.md")).toBeVisible();
+});
+
+test("creates a project from the dashboard", async ({ page }) => {
+  const project = {
+    id: "006b5407-9919-4c36-8eab-1c65d70ad6ce",
+    name: "Demo mínima",
+    description: "Proyecto local para la demo.",
+    status: "ACTIVE",
+    priority: "HIGH",
+    createdAt: demoTimestamp,
+    updatedAt: demoTimestamp,
+  };
+  let projects: (typeof project)[] = [];
+
+  await page.route("http://127.0.0.1:3000/api/**", async (route) => {
+    const { pathname } = new URL(route.request().url());
+    if (pathname === "/api/projects" && route.request().method() === "POST") {
+      projects = [project];
+      await route.fulfill({ status: 201, json: project });
+      return;
+    }
+    if (pathname === "/api/projects") {
+      await route.fulfill({ json: projects });
+      return;
+    }
+    if (pathname.endsWith("/stream")) {
+      await route.abort();
+      return;
+    }
+    if (pathname === "/api/executions") {
+      await route.fulfill({ json: [] });
+      return;
+    }
+    await route.fulfill({ status: 404, json: { message: "Not found" } });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Nuevo proyecto/ }).click();
+  await page.getByLabel(/Nombre/).fill(project.name);
+  await page.getByLabel(/Descripci/).fill(project.description);
+  await page.getByRole("button", { name: "Crear proyecto" }).click();
+
+  await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+  expect(projects).toHaveLength(1);
 });

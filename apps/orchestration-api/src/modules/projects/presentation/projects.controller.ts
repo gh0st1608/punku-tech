@@ -15,8 +15,11 @@ import {
 import type { CreateProjectRequest, UpdateProjectRequest } from "@aief/contracts";
 import { ProjectNotFoundError } from "../application/project-not-found.error";
 import { ProjectsService } from "../application/projects.service";
-import type { CreateProjectDto } from "./dto/create-project.dto";
-import type { UpdateProjectDto } from "./dto/update-project.dto";
+// Keep these as runtime imports so Nest's ValidationPipe receives the DTO metadata.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { CreateProjectDto } from "./dto/create-project.dto";
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { UpdateProjectDto } from "./dto/update-project.dto";
 
 @Controller("projects")
 export class ProjectsController {
