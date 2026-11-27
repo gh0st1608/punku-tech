@@ -30,6 +30,8 @@ npm run db:migrate
 npm run dev:api
 ```
 
+En otra terminal, inicia el dashboard local con `npm run dev:web` y abre `http://127.0.0.1:5173`. Configura `CORS_ORIGINS=http://127.0.0.1:5173` en la API si usas ese origen; el `.env.example` del dashboard permite cambiar la URL de la API mediante `VITE_API_BASE_URL`.
+
 Configura `OPENCODE_BASE_URL`, `OPENCODE_REQUIRED_VERSION`, `OPENCODE_WORKSPACE_ROOT`, `OPENCODE_WORKTREE_ROOT` y `OPENCODE_PASSWORD` en `.env`. Ejecuta OpenCode `2.4.2` con `opencode serve --hostname 127.0.0.1 --port 4096`, usando el mismo password y una carpeta visible desde ambos procesos. El workspace debe ser un repositorio Git. El directorio de worktrees usa por defecto una carpeta hermana llamada `.aief-worktrees`. El adapter usa Basic Auth con el usuario fijo `opencode`; no registra la contraseña.
 
 La API escucha solo en `127.0.0.1:3000/api`, y PostgreSQL publica su puerto solo en la interfaz local. El esquema de base de datos se encuentra en `apps/orchestration-api/prisma/schema.prisma`.
@@ -61,6 +63,8 @@ npm run quality
 - `GET /api/runtime/health`
 - `GET /api/runtime/agents`
 - `POST /api/runtime/sessions`
+
+El dashboard local presenta el estado de los seis agentes especializados, el timeline de eventos y el detalle de cada tarea con resumen y rutas relativas de artefactos. El stream SSE recupera eventos persistidos al reconectar mediante `Last-Event-ID`; la interfaz también vuelve a cargar el snapshot de la ejecución al restablecer la conexión.
 
 Los identificadores de ejecución deben ser UUID válidos. `POST /api/executions` recorta y valida el requerimiento; `budgetUsd` acepta de 0.01 a 1000 USD con hasta dos decimales. Si se omite, se usa `EXECUTION_BUDGET_USD` cuando está configurado; si no, queda sin límite configurado.
 
