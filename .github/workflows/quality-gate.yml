@@ -13,6 +13,9 @@ jobs:
   quality-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      options: --user 1001
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -28,9 +31,6 @@ jobs:
 
       - name: Generate Prisma client
         run: npm run db:generate
-
-      - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
 
       - name: Run Quality Gate
         run: npm run quality-gate
