@@ -236,8 +236,10 @@ export class ExecutionsService implements OnApplicationBootstrap {
     }
 
     const workspacePath = resolve(this.environment.opencodeWorktreeRoot, id);
+    const workspaceBranch = `aief/execution-${id}`;
     const started = await this.repository.startIfPlanned(id, {
       workspacePath,
+      workspaceBranch,
       runnerId: this.runnerId,
       startedAt: new Date(),
       leaseUntil: this.leaseUntil(),
@@ -245,7 +247,7 @@ export class ExecutionsService implements OnApplicationBootstrap {
     if (!started) throw new ExecutionPlanningConflictError("Execution has already been started.");
 
     try {
-      await this.worktrees.create(id);
+      await this.worktrees.create(id, workspaceBranch);
     } catch {
       await this.repository.failExecutionIfActive(id, this.runnerId, new Date());
       await this.repository.releaseExecutionLease(id, this.runnerId);
@@ -554,6 +556,7 @@ export class ExecutionsService implements OnApplicationBootstrap {
       requirement: execution.requirement,
       status: execution.status,
       budgetUsd: execution.budgetUsd,
+      workspaceBranch: execution.workspaceBranch,
       startedAt: execution.startedAt,
       finishedAt: execution.finishedAt,
       createdAt: execution.createdAt,

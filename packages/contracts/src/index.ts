@@ -89,6 +89,7 @@ export interface ExecutionRecord {
   requirement: string;
   status: ExecutionStatus;
   budgetUsd: number | null;
+  workspaceBranch: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;

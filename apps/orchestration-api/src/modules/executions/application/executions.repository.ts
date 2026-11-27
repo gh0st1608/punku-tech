@@ -35,7 +35,13 @@ export interface ExecutionsRepository {
   ): Promise<ExecutionDetails | null>;
   startIfPlanned(
     id: string,
-    claim: { workspacePath: string; runnerId: string; startedAt: Date; leaseUntil: Date },
+    claim: {
+      workspacePath: string;
+      workspaceBranch: string;
+      runnerId: string;
+      startedAt: Date;
+      leaseUntil: Date;
+    },
   ): Promise<boolean>;
   claimRunningExecution(
     executionId: string,

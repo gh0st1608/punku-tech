@@ -9,15 +9,19 @@ const executeFile = promisify(execFile);
 export class GitWorktreeManager {
   constructor(private readonly environment: AppEnvironment) {}
 
-  async create(executionId: string): Promise<string> {
+  async create(executionId: string, branchName: string): Promise<string> {
     const directory = this.directoryFor(executionId);
 
     await mkdir(this.environment.opencodeWorktreeRoot, { recursive: true });
-    await executeFile("git", ["worktree", "add", "--detach", directory, "HEAD"], {
-      cwd: this.environment.opencodeWorkspaceRoot,
-      windowsHide: true,
-      timeout: 30_000,
-    });
+    await executeFile(
+      "git",
+      ["worktree", "add", "--no-track", "-b", branchName, directory, "HEAD"],
+      {
+        cwd: this.environment.opencodeWorkspaceRoot,
+        windowsHide: true,
+        timeout: 30_000,
+      },
+    );
     return directory;
   }
 
