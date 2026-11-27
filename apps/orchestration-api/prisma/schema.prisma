@@ -63,6 +63,7 @@ model Execution {
   status           ExecutionStatus @default(CREATED)
   budgetUsd        Decimal?        @map("budget_usd") @db.Decimal(12, 6)
   workspacePath    String?         @map("workspace_path") @db.Text
+  workspaceBranch  String?         @map("workspace_branch")
   runnerId         String?         @map("runner_id")
   runnerLeaseUntil DateTime?       @map("runner_lease_until")
   startedAt        DateTime?       @map("started_at")

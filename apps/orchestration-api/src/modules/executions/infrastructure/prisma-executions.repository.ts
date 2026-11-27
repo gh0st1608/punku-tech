@@ -34,6 +34,7 @@ function mapExecution(
     requirement: row.requirement,
     status: row.status as ExecutionRecord["status"],
     budgetUsd: row.budgetUsd === null ? null : Number(row.budgetUsd),
+    workspaceBranch: row.workspaceBranch,
     startedAt: toIso(row.startedAt),
     finishedAt: toIso(row.finishedAt),
     createdAt: row.createdAt.toISOString(),
@@ -231,7 +232,13 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
 
   async startIfPlanned(
     id: string,
-    claim: { workspacePath: string; runnerId: string; startedAt: Date; leaseUntil: Date },
+    claim: {
+      workspacePath: string;
+      workspaceBranch: string;
+      runnerId: string;
+      startedAt: Date;
+      leaseUntil: Date;
+    },
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.execution.updateMany({
@@ -240,6 +247,7 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
           status: ExecutionStatus.RUNNING,
           startedAt: claim.startedAt,
           workspacePath: claim.workspacePath,
+          workspaceBranch: claim.workspaceBranch,
           runnerId: claim.runnerId,
           runnerLeaseUntil: claim.leaseUntil,
         },

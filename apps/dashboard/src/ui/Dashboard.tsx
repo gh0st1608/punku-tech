@@ -746,6 +746,11 @@ export function Dashboard() {
                       <span>
                         Iniciada {formatDate(activeDetails.startedAt ?? activeDetails.createdAt)}
                       </span>
+                      {activeDetails.workspaceBranch ? (
+                        <span>
+                          Rama <code>{activeDetails.workspaceBranch}</code>
+                        </span>
+                      ) : null}
                       <span>ID {shortId(activeDetails.id)}</span>
                     </div>
                   </div>
