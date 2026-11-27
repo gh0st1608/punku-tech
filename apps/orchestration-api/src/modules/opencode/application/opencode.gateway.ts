@@ -32,6 +32,19 @@ export type OpenCodeSessionEvent = {
   type: string;
   createdAt: Date;
   sessionId: string;
+  usage?: {
+    messageId: string;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    reasoningTokens: number | null;
+    cacheReadTokens: number | null;
+    cacheWriteTokens: number | null;
+    reportedCostUsd: number | null;
+    provider: string | null;
+    model: string | null;
+    estimatedCostUsd: number | null;
+    rateVersion: string | null;
+  };
 };
 
 export interface OpenCodeGateway {
@@ -48,5 +61,9 @@ export interface OpenCodeGateway {
   wait(sessionId: string): Promise<void>;
   interrupt(sessionId: string): Promise<boolean>;
   latestAssistantResult(sessionId: string): Promise<OpenCodeAssistantResult | null>;
+  assistantMessageModel?(
+    sessionId: string,
+    messageId: string,
+  ): Promise<{ provider: string; model: string } | null>;
   subscribeSessionEvents(signal: AbortSignal): AsyncIterable<OpenCodeSessionEvent>;
 }

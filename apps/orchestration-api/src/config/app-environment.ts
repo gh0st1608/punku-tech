@@ -1,4 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { parseModelTariffs } from "../modules/executions/application/model-tariffs";
+import type { ModelTariff } from "../modules/executions/application/model-tariffs";
 
 export const APP_ENVIRONMENT = Symbol("APP_ENVIRONMENT");
 
@@ -20,6 +22,7 @@ export interface AppEnvironment {
   opencodeRequiredVersion: string;
   opencodeWorkspaceRoot: string;
   opencodeWorktreeRoot: string;
+  modelTariffs: ModelTariff[];
 }
 
 function parseHttpUrl(value: string, name: string): string {
@@ -131,5 +134,6 @@ export function loadAppEnvironment(env: NodeJS.ProcessEnv = process.env): AppEnv
     opencodeRequiredVersion: env.OPENCODE_REQUIRED_VERSION?.trim() || "2.4.2",
     opencodeWorkspaceRoot,
     opencodeWorktreeRoot,
+    modelTariffs: parseModelTariffs(env.MODEL_TARIFFS_JSON),
   };
 }

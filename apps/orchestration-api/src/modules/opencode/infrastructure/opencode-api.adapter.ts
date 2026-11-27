@@ -42,6 +42,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function nonNegativeMoney(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function readUsage(value: Record<string, unknown>, type: string) {
+  if (type !== "session.step.ended" && type !== "session.step.failed") return undefined;
+  const messageId = value.assistantMessageID;
+  if (typeof messageId !== "string" || !messageId) return undefined;
+  const tokenData = isRecord(value.tokens) ? value.tokens : {};
+  const cacheData = isRecord(tokenData.cache) ? tokenData.cache : {};
+
+  return {
+    messageId,
+    inputTokens: nonNegativeInteger(tokenData.input),
+    outputTokens: nonNegativeInteger(tokenData.output),
+    reasoningTokens: nonNegativeInteger(tokenData.reasoning),
+    cacheReadTokens: nonNegativeInteger(cacheData.read),
+    cacheWriteTokens: nonNegativeInteger(cacheData.write),
+    reportedCostUsd: nonNegativeMoney(value.cost),
+    provider: null,
+    model: null,
+    estimatedCostUsd: null,
+    rateVersion: null,
+  };
+}
+
 function parseSseData(frame: string): unknown | null {
   const data = frame
     .split(/\r?\n/)
@@ -62,6 +92,7 @@ function readSessionEvent(value: unknown): {
   type: string;
   created: number;
   sessionId: string;
+  usage?: ReturnType<typeof readUsage>;
 } | null {
   if (!isRecord(value) || !isRecord(value.data)) return null;
   const session = value.data.sessionID;
@@ -79,6 +110,7 @@ function readSessionEvent(value: unknown): {
     type: value.type as string,
     created: value.created as number,
     sessionId: session as string,
+    usage: readUsage(value.data, value.type as string),
   };
 }
 
@@ -94,6 +126,7 @@ function parseSessionEvent(frame: string): OpenCodeSessionEvent | null {
     type: event.type,
     createdAt,
     sessionId: event.sessionId,
+    usage: event.usage,
   };
 }
 
@@ -210,6 +243,21 @@ export class OpenCodeApiAdapter implements OpenCodeGateway {
           .trim() || null,
       artifactPaths: diff.filter((file) => file.status !== "deleted").map((file) => file.file),
     };
+  }
+
+  async assistantMessageModel(
+    sessionId: string,
+    messageId: string,
+  ): Promise<{ provider: string; model: string } | null> {
+    try {
+      const message = await this.request<SessionMessagesResponse["data"][number]>(
+        `/api/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
+      );
+      if (message.type !== "assistant") return null;
+      return { provider: message.model.providerID, model: message.model.id };
+    } catch {
+      return null;
+    }
   }
 
   async *subscribeSessionEvents(signal: AbortSignal): AsyncIterable<OpenCodeSessionEvent> {

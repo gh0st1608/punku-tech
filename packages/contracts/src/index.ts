@@ -100,6 +100,12 @@ export interface ExecutionDetails extends ExecutionRecord {
 }
 
 export interface UsageRecordForSummary {
+  messageId: string;
+  taskId: string | null;
+  agentId: string | null;
+  provider: string | null;
+  model: string | null;
+  recordedAt: string;
   inputTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
@@ -107,13 +113,33 @@ export interface UsageRecordForSummary {
   cacheWriteTokens: number | null;
   reportedCostUsd: number | null;
   estimatedCostUsd: number | null;
+  costStatus: CostStatus;
+  rateVersion: string | null;
 }
 
 export type UsageAvailability = "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
+export type CostDisplayStatus = CostStatus | "MIXED";
+
+export interface UsageBreakdown {
+  key: string;
+  label: string;
+  turns: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  reportedCostUsd: number | null;
+  estimatedCostUsd: number | null;
+  unavailableCostTurns: number;
+  costStatus: CostDisplayStatus;
+  rateVersions: string[];
+}
 
 export interface UsageSummary {
   turns: number;
   tokenAvailability: UsageAvailability;
+  costStatus: CostDisplayStatus;
   inputTokens: number | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
@@ -125,4 +151,7 @@ export interface UsageSummary {
   estimatedCostUsd: number | null;
   estimatedCostTurns: number;
   unavailableCostTurns: number;
+  byAgent: UsageBreakdown[];
+  byTask: UsageBreakdown[];
+  byModel: UsageBreakdown[];
 }
