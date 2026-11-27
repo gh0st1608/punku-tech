@@ -34,6 +34,11 @@ type PlanDraftTask = {
   dependsOn: string[];
 };
 
+type RunnerLeaseState = { lost: boolean; lostPromise: Promise<void>; notifyLost: () => void };
+
+const RUNNER_LEASE_MS = 30_000;
+const RUNNER_HEARTBEAT_MS = 10_000;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -133,6 +138,7 @@ function readPlan(text: string, availableAgentIds: Set<string>): PlanDraftTask[]
 
 export class ExecutionsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ExecutionsService.name);
+  private readonly runnerId = randomUUID();
 
   constructor(
     private readonly repository: ExecutionsRepository,
@@ -230,28 +236,106 @@ export class ExecutionsService implements OnApplicationBootstrap {
     }
 
     const workspacePath = resolve(this.environment.opencodeWorktreeRoot, id);
-    const started = await this.repository.startIfPlanned(id, workspacePath, new Date());
+    const started = await this.repository.startIfPlanned(id, {
+      workspacePath,
+      runnerId: this.runnerId,
+      startedAt: new Date(),
+      leaseUntil: this.leaseUntil(),
+    });
     if (!started) throw new ExecutionPlanningConflictError("Execution has already been started.");
 
     try {
       await this.worktrees.create(id);
     } catch {
-      await this.repository.failExecutionIfActive(id, new Date());
+      await this.repository.failExecutionIfActive(id, this.runnerId, new Date());
+      await this.repository.releaseExecutionLease(id, this.runnerId);
       throw new ExecutionWorkspaceUnavailableError();
     }
 
-    this.runInBackground(id);
+    this.runInBackground(id, true);
     return this.get(id);
   }
 
-  private runInBackground(executionId: string): void {
-    void this.executeTasks(executionId).catch(async () => {
-      await this.repository.failExecutionIfActive(executionId, new Date());
-      this.logger.error(`Task runner stopped unexpectedly for execution ${executionId}.`);
+  private runInBackground(executionId: string, alreadyClaimed = false): void {
+    void (async () => {
+      let acquired = alreadyClaimed;
+      try {
+        if (!acquired) {
+          acquired = await this.repository.claimRunningExecution(
+            executionId,
+            this.runnerId,
+            new Date(),
+            this.leaseUntil(),
+          );
+        }
+        if (!acquired) return;
+        await this.runWithLease(executionId);
+      } catch {
+        await this.repository.failExecutionIfActive(executionId, this.runnerId, new Date());
+        this.logger.error(`Task runner stopped unexpectedly for execution ${executionId}.`);
+      } finally {
+        if (acquired) await this.repository.releaseExecutionLease(executionId, this.runnerId);
+      }
+    })().catch(() => {
+      this.logger.error(`Task runner cleanup failed for execution ${executionId}.`);
     });
   }
 
-  private async executeTasks(executionId: string): Promise<void> {
+  private async runWithLease(executionId: string): Promise<void> {
+    let notifyLost!: () => void;
+    const lease: RunnerLeaseState = {
+      lost: false,
+      lostPromise: new Promise<void>((resolve) => {
+        notifyLost = resolve;
+      }),
+      notifyLost: () => notifyLost(),
+    };
+    let heartbeatRunning = false;
+    const heartbeat = setInterval(() => {
+      if (heartbeatRunning || lease.lost) return;
+      heartbeatRunning = true;
+      void this.repository
+        .renewExecutionLease(executionId, this.runnerId, this.leaseUntil())
+        .then((renewed) => {
+          if (!renewed) this.loseLease(executionId, lease);
+        })
+        .catch(() => this.loseLease(executionId, lease))
+        .finally(() => {
+          heartbeatRunning = false;
+        });
+    }, RUNNER_HEARTBEAT_MS);
+    heartbeat.unref();
+    try {
+      await this.executeTasks(executionId, lease);
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+
+  private loseLease(executionId: string, lease: RunnerLeaseState): void {
+    if (lease.lost) return;
+    lease.lost = true;
+    lease.notifyLost();
+    this.logger.warn(`Runner lease was lost for execution ${executionId}.`);
+  }
+
+  private async ensureLease(executionId: string, lease: RunnerLeaseState): Promise<boolean> {
+    if (lease.lost) return false;
+    try {
+      const renewed = await this.repository.renewExecutionLease(
+        executionId,
+        this.runnerId,
+        this.leaseUntil(),
+      );
+      if (!renewed) this.loseLease(executionId, lease);
+      return renewed;
+    } catch {
+      this.loseLease(executionId, lease);
+      return false;
+    }
+  }
+
+  private async executeTasks(executionId: string, lease: RunnerLeaseState): Promise<void> {
     const workspacePath = await this.repository.workspacePath(executionId);
     if (
       workspacePath !== this.worktrees.directoryFor(executionId) ||
@@ -260,21 +344,21 @@ export class ExecutionsService implements OnApplicationBootstrap {
       throw new Error("Execution workspace is missing or invalid.");
     }
 
-    while (true) {
+    while (!lease.lost) {
       const execution = await this.get(executionId);
-      if (execution.status !== "RUNNING") return;
+      if (lease.lost || execution.status !== "RUNNING") return;
       const runningTask = execution.tasks.find((item) => item.status === "RUNNING");
       const task = runningTask ?? this.nextRunnableTask(execution.tasks);
       if (!task) {
         const hasPendingTasks = execution.tasks.some((item) => item.status === "PENDING");
         if (hasPendingTasks) {
-          await this.repository.failExecutionIfActive(executionId, new Date());
+          await this.repository.failExecutionIfActive(executionId, this.runnerId, new Date());
           return;
         }
-        await this.repository.completeExecutionIfTasksDone(executionId, new Date());
+        await this.repository.completeExecutionIfTasksDone(executionId, this.runnerId, new Date());
         return;
       }
-      if (!(await this.executeTask(executionId, task, workspacePath))) return;
+      if (!(await this.executeTask(executionId, task, workspacePath, lease))) return;
     }
   }
 
@@ -297,51 +381,100 @@ export class ExecutionsService implements OnApplicationBootstrap {
     executionId: string,
     task: TaskRecord,
     workspacePath: string,
+    lease: RunnerLeaseState,
   ): Promise<boolean> {
+    if (!(await this.prepareTask(executionId, task, lease))) return false;
+    const sessionId = await this.getOrCreateTaskSession(executionId, task, workspacePath, lease);
+    if (!sessionId) return false;
+    return this.runTaskSession(executionId, task, sessionId, lease);
+  }
+
+  private async prepareTask(
+    executionId: string,
+    task: TaskRecord,
+    lease: RunnerLeaseState,
+  ): Promise<boolean> {
+    if (!(await this.ensureLease(executionId, lease))) return false;
     if (
       task.status === "PENDING" &&
-      !(await this.repository.startTaskIfPending(executionId, task.id, new Date()))
+      !(await this.repository.startTaskIfPending(executionId, task.id, this.runnerId, new Date()))
     ) {
       return false;
     }
+    return true;
+  }
 
-    let sessionId = task.sessionId;
-    if (!sessionId) {
-      const availableAgentIds = new Set(
-        (await this.openCode.listAgents(workspacePath)).map((agent) => agent.id),
-      );
-      if (!availableAgentIds.has(task.agentId)) {
-        await this.repository.failTaskAndExecution(executionId, task.id, new Date());
-        return false;
-      }
+  private async getOrCreateTaskSession(
+    executionId: string,
+    task: TaskRecord,
+    workspacePath: string,
+    lease: RunnerLeaseState,
+  ): Promise<string | null> {
+    if (task.sessionId) return task.sessionId;
+    if (!(await this.ensureLease(executionId, lease))) return null;
 
-      const session = await this.openCode.createSession({
-        title: `${task.agentId}: ${task.title}`,
-        agentId: task.agentId as (typeof agentIds)[number],
-        directory: workspacePath,
-      });
-      const attached = await this.repository.attachTaskSession(executionId, task.id, session.id);
-      if (!attached) {
-        await this.openCode.interrupt(session.id).catch(() => false);
-        return false;
-      }
-      sessionId = session.id;
+    const agents = await this.openCode.listAgents(workspacePath);
+    if (!(await this.ensureLease(executionId, lease))) return null;
+    if (!agents.some((agent) => agent.id === task.agentId)) {
+      await this.repository.failTaskAndExecution(executionId, task.id, this.runnerId, new Date());
+      return null;
     }
 
+    const session = await this.openCode.createSession({
+      title: `${task.agentId}: ${task.title}`,
+      agentId: task.agentId as (typeof agentIds)[number],
+      directory: workspacePath,
+    });
+    if (!(await this.ensureLease(executionId, lease))) {
+      await this.openCode.interrupt(session.id).catch(() => false);
+      return null;
+    }
+
+    const attached = await this.repository.attachTaskSession(
+      executionId,
+      task.id,
+      this.runnerId,
+      session.id,
+    );
+    if (attached) return session.id;
+    await this.openCode.interrupt(session.id).catch(() => false);
+    return null;
+  }
+
+  private async runTaskSession(
+    executionId: string,
+    task: TaskRecord,
+    sessionId: string,
+    lease: RunnerLeaseState,
+  ): Promise<boolean> {
     const prompt = this.taskPrompt(task);
-    if (!(await this.openCode.hasPrompt(sessionId, prompt))) {
-      await this.openCode.prompt(sessionId, prompt);
-    }
-    await this.openCode.wait(sessionId);
+    if (!(await this.ensureLease(executionId, lease))) return false;
+    const hasPrompt = await this.openCode.hasPrompt(sessionId, prompt);
+    if (!(await this.ensureLease(executionId, lease))) return false;
+    if (!hasPrompt) await this.openCode.prompt(sessionId, prompt);
+    if (!(await this.ensureLease(executionId, lease))) return false;
+
+    await Promise.race([this.openCode.wait(sessionId), lease.lostPromise]);
+    if (!(await this.ensureLease(executionId, lease))) return false;
     const result = await this.openCode.latestAssistantResult(sessionId);
+    if (!(await this.ensureLease(executionId, lease))) return false;
     if (result?.finish !== "stop") {
-      await this.repository.failTaskAndExecution(executionId, task.id, new Date());
+      await this.repository.failTaskAndExecution(executionId, task.id, this.runnerId, new Date());
       return false;
     }
-    return this.repository.completeTask(executionId, task.id, new Date(), {
-      summary: sanitizeTaskSummary(result.summary),
-      artifactPaths: sanitizeArtifactPaths(result.artifactPaths),
+
+    return this.repository.completeTask(executionId, task.id, {
+      runnerId: this.runnerId,
+      finishedAt: new Date(),
+      deliverables: {
+        summary: sanitizeTaskSummary(result.summary),
+        artifactPaths: sanitizeArtifactPaths(result.artifactPaths),
+      },
     });
+  }
+
+  private leaseUntil(now = Date.now()): Date {
+    return new Date(now + RUNNER_LEASE_MS);
   }
 
   private taskPrompt(task: TaskRecord): string {
