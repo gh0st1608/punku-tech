@@ -31,6 +31,31 @@ export const agentIds = [
 ] as const;
 export type AgentId = (typeof agentIds)[number];
 
+export const projectStatuses = ["PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED"] as const;
+export type ProjectStatus = (typeof projectStatuses)[number];
+
+export const projectPriorities = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
+export type ProjectPriority = (typeof projectPriorities)[number];
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  priority: ProjectPriority;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectRequest {
+  name: string;
+  description?: string;
+  status?: ProjectStatus;
+  priority?: ProjectPriority;
+}
+
+export type UpdateProjectRequest = Partial<CreateProjectRequest>;
+
 export interface DomainEvent<TPayload = Record<string, unknown>> {
   eventId: string;
   sourceEventId?: string;

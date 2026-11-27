@@ -4,13 +4,13 @@ Base de un MVP local para coordinar agentes de ingeniería, observar ejecuciones
 
 ## Estado actual
 
-- La API crea/lista ejecuciones, consulta detalle, genera y persiste planes con tareas, consulta eventos y resume uso.
+- La API administra proyectos con CRUD, crea/lista ejecuciones, consulta detalle, genera y persiste planes con tareas, consulta eventos y resume uso.
 - PostgreSQL se levanta con Docker Compose.
 - OpenCode se integra por su API HTTP con la versión requerida `2.4.2`; el adapter valida health, lista agentes, crea sesiones y ejecuta tareas.
 - OpenCode genera planes que se validan y persisten antes de ejecutar tareas.
 - Las tareas se ejecutan secuencialmente en sesiones aisladas y respetan sus dependencias; las ejecuciones se pueden cancelar.
 - Cada ejecución usa un worktree Git separado de `OPENCODE_WORKSPACE_ROOT`; sus cambios quedan allí para revisión humana y no se integran automáticamente.
-- No hay dashboard React, CRUD generado, tablas de tarifas ni Quality Gate ejecutable todavía.
+- El dashboard React incluye el tablero de agentes, uso/costos y la gestión de proyectos. El Quality Gate automatizado sigue pendiente.
 
 ## Requisitos
 
@@ -60,6 +60,11 @@ npm run quality
 - `GET /api/executions/:id/events`
 - `GET /api/executions/:id/stream` (SSE)
 - `GET /api/executions/:id/usage`
+- `GET /api/projects`
+- `POST /api/projects`
+- `GET /api/projects/:id`
+- `PATCH /api/projects/:id`
+- `DELETE /api/projects/:id`
 - `GET /api/runtime/health`
 - `GET /api/runtime/agents`
 - `POST /api/runtime/sessions`
@@ -67,6 +72,8 @@ npm run quality
 El dashboard local presenta el estado de los seis agentes especializados, el timeline de eventos y el detalle de cada tarea con resumen y rutas relativas de artefactos. El stream SSE recupera eventos persistidos al reconectar mediante `Last-Event-ID`; la interfaz también vuelve a cargar el snapshot de la ejecución al restablecer la conexión.
 
 Los identificadores de ejecución deben ser UUID válidos. `POST /api/executions` recorta y valida el requerimiento; `budgetUsd` acepta de 0.01 a 1000 USD con hasta dos decimales. Si se omite, se usa `EXECUTION_BUDGET_USD` cuando está configurado; si no, queda sin límite configurado.
+
+Los proyectos admiten nombre de 2 a 120 caracteres, descripción opcional de hasta 2000 caracteres, estado `PLANNING`, `ACTIVE`, `ON_HOLD` o `COMPLETED`, y prioridad `LOW`, `MEDIUM`, `HIGH` o `URGENT`. Las rutas `PATCH` y `DELETE` validan el UUID y rechazan campos adicionales.
 
 `CORS_ORIGINS` es una lista separada por comas de orígenes HTTP/HTTPS exactos. No admite comodines. La configuración inválida o la ausencia de `DATABASE_URL` impiden iniciar la API con un mensaje que no revela valores sensibles.
 
@@ -84,7 +91,6 @@ Los eventos `session.step.ended` y `session.step.failed` registran como máximo 
 
 ## Próximos cortes
 
-1. Generar el CRUD Project/Task.
-2. Ejecutar QA automatizado y guardar evidencia del Quality Gate.
+1. Ejecutar QA automatizado y guardar evidencia del Quality Gate.
 
 El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.

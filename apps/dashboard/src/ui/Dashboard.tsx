@@ -16,6 +16,7 @@ import {
   listEvents,
   listExecutions,
 } from "../api";
+import { ProjectWorkspace } from "./ProjectWorkspace";
 
 const boardAgents = [
   { id: "backend", label: "Backend", short: "BE", color: "violet" },
@@ -527,6 +528,9 @@ export function Dashboard() {
           <a className="nav-link selected" href="#board">
             <span className="nav-glyph">▦</span>Agent board
           </a>
+          <a className="nav-link" href="#projects">
+            <span className="nav-glyph">▧</span>Proyectos
+          </a>
           <a className="nav-link disabled" href="#timeline" aria-disabled="true">
             <span className="nav-glyph">◷</span>Actividad
           </a>
@@ -581,6 +585,8 @@ export function Dashboard() {
             <div className="avatar">P</div>
           </div>
         </header>
+
+        <ProjectWorkspace />
 
         <div className="content-grid">
           <section className="board-column">
