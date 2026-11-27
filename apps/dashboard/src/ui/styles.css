@@ -1574,6 +1574,51 @@ p {
   border-radius: 9px;
   background: #fff;
 }
+.model-comparison-panel {
+  margin-top: 15px;
+  padding: 17px 18px 14px;
+  border: 1px solid #e5e8e2;
+  border-radius: 9px;
+  background: #fff;
+}
+.model-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin: 16px 0;
+}
+.model-filter-row label {
+  display: grid;
+  gap: 6px;
+  color: #707b74;
+  font-size: 11px;
+  font-weight: 700;
+}
+.model-filter-row select,
+.model-filter-row input,
+.model-filter-row button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #e5e8e2;
+  border-radius: 7px;
+  background: #fff;
+  color: #30383e;
+  font: inherit;
+}
+.model-filter-row button {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+.model-filter-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.usage-filter-error {
+  color: #b42318;
+  font-size: 12px;
+}
 .usage-heading,
 .usage-breakdown-heading {
   display: flex;

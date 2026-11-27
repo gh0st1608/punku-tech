@@ -167,6 +167,15 @@ export interface UsageBreakdown {
   rateVersions: string[];
 }
 
+export interface CompletedTaskModelCost {
+  key: string;
+  label: string;
+  completedTasks: number;
+  costUsd: number | null;
+  costPerCompletedTaskUsd: number | null;
+  unavailableCostTurns: number;
+}
+
 export interface UsageSummary {
   turns: number;
   tokenAvailability: UsageAvailability;
@@ -185,4 +194,5 @@ export interface UsageSummary {
   byAgent: UsageBreakdown[];
   byTask: UsageBreakdown[];
   byModel: UsageBreakdown[];
+  completedTaskCostsByModel: CompletedTaskModelCost[];
 }

@@ -71,8 +71,17 @@ export function listEvents(id: string, signal?: AbortSignal): Promise<DomainEven
   return request(`/executions/${encodeURIComponent(id)}/events`, signal);
 }
 
-export function getUsage(id: string, signal?: AbortSignal): Promise<UsageSummary> {
-  return request(`/executions/${encodeURIComponent(id)}/usage`, signal);
+export function getUsage(
+  id: string,
+  signal?: AbortSignal,
+  filters: { from?: string; to?: string; model?: string } = {},
+): Promise<UsageSummary> {
+  const query = new URLSearchParams();
+  if (filters.from) query.set("from", filters.from);
+  if (filters.to) query.set("to", filters.to);
+  if (filters.model) query.set("model", filters.model);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return request(`/executions/${encodeURIComponent(id)}/usage${suffix}`, signal);
 }
 
 export function approveExecutionBudget(id: string, newBudgetUsd: number): Promise<ExecutionRecord> {
