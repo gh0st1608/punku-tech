@@ -10,7 +10,8 @@ Base de un MVP local para coordinar agentes de ingeniería, observar ejecuciones
 - OpenCode genera planes que se validan y persisten antes de ejecutar tareas.
 - Las tareas se ejecutan secuencialmente en sesiones aisladas y respetan sus dependencias; las ejecuciones se pueden cancelar.
 - Cada ejecución usa un worktree Git separado de `OPENCODE_WORKSPACE_ROOT`; sus cambios quedan allí para revisión humana y no se integran automáticamente.
-- El dashboard React incluye el tablero de agentes, uso/costos y la gestión de proyectos. El Quality Gate automatizado sigue pendiente.
+- El dashboard React incluye el tablero de agentes, uso/costos y la gestión de proyectos.
+- Las pruebas automatizadas usan Jest/Supertest para la API y Playwright para un flujo del dashboard; el Quality Gate genera evidencia PASS/FAIL/NOT_RUN.
 
 ## Requisitos
 
@@ -45,9 +46,15 @@ npm run format
 npm run lint
 npm run typecheck
 npm run quality
+npm run test:api
+npx playwright install chromium
+npm run test:e2e
+npm run quality-gate
 ```
 
-`quality` revisa formato, lint y tipos; no ejecuta pruebas. Las reglas de complejidad empiezan como advertencias para que el equipo pueda refactorizar de forma gradual sin ocultar los errores de lint.
+`quality` revisa formato, lint y tipos. `test:api` ejecuta Jest/Supertest; `test:e2e` ejecuta el flujo del dashboard con Playwright. `quality-gate` ejecuta las verificaciones y genera `artifacts/qa/quality-gate-summary.json` y `.md`, logs, resultados Jest y reportes Playwright. También revisa dependencias de producción y que no haya archivos `.env` reales o credenciales de alta confianza entre los archivos rastreados. El workflow de GitHub sube estas evidencias como artefactos en cada PR a `develop` o `main`.
+
+Para añadir costo y entregables de una ejecución al resumen, configura `AIEF_EXECUTION_ID` y `AIEF_API_BASE_URL` antes de ejecutar `quality-gate`. Sin un ID, ambos campos quedan identificados como `NOT_RUN`. Las reglas de complejidad empiezan como advertencias para que el equipo pueda refactorizar de forma gradual sin ocultar los errores de lint.
 
 ## Rutas iniciales
 
@@ -91,6 +98,6 @@ Los eventos `session.step.ended` y `session.step.failed` registran como máximo 
 
 ## Próximos cortes
 
-1. Ejecutar QA automatizado y guardar evidencia del Quality Gate.
+1. Resolver las vulnerabilidades altas reportadas por la auditoría de dependencias de Prisma y volver a ejecutar el Quality Gate.
 
 El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.

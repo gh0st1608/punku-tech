@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type {
   AgentId,
   CreateExecutionRequest,
@@ -14,7 +14,7 @@ import { agentIds } from "@aief/contracts";
 import type { OpenCodeSessionEvent } from "../../opencode/application/opencode.gateway";
 import type { Prisma } from "@prisma/client";
 import { ExecutionStatus, TaskStatus } from "@prisma/client";
-import type { PrismaService } from "../../prisma/prisma.service";
+import { PrismaService } from "../../prisma/prisma.service";
 import type { EventCursor, ExecutionsRepository } from "../application/executions.repository";
 
 const EVENT_SOURCE = "orchestration-api";
@@ -93,7 +93,7 @@ function mapEvent(row: Prisma.EventGetPayload<Prisma.EventDefaultArgs>): DomainE
 
 @Injectable()
 export class PrismaExecutionsRepository implements ExecutionsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async create(input: CreateExecutionRequest): Promise<ExecutionRecord> {
     const row = await this.prisma.$transaction(async (tx) => {
