@@ -75,6 +75,20 @@ export function getUsage(id: string, signal?: AbortSignal): Promise<UsageSummary
   return request(`/executions/${encodeURIComponent(id)}/usage`, signal);
 }
 
+export function approveExecutionBudget(id: string, newBudgetUsd: number): Promise<ExecutionRecord> {
+  return send<ExecutionRecord>(`/executions/${encodeURIComponent(id)}/approve-budget`, "POST", {
+    newBudgetUsd,
+  }).catch(() => {
+    throw new Error("No se pudo aprobar el nuevo límite de presupuesto.");
+  });
+}
+
+export function cancelExecution(id: string): Promise<ExecutionRecord> {
+  return send<ExecutionRecord>(`/executions/${encodeURIComponent(id)}/cancel`, "POST").catch(() => {
+    throw new Error("No se pudo cancelar la ejecución.");
+  });
+}
+
 export function getTaskDetails(
   executionId: string,
   taskId: string,

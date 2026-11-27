@@ -15,6 +15,7 @@ import type { OpenCodeSessionEvent } from "../../opencode/application/opencode.g
 import type { Prisma } from "@prisma/client";
 import { ExecutionStatus, TaskStatus } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import { evaluateBudget } from "../application/budget-policy";
 import type { EventCursor, ExecutionsRepository } from "../application/executions.repository";
 
 const EVENT_SOURCE = "orchestration-api";
@@ -528,6 +529,101 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
       orderBy: { startedAt: "asc" },
     });
     return rows.map((row) => row.id);
+  }
+
+  async enforceBudgetLimit(
+    executionId: string,
+    runnerId: string,
+    spentUsd: number,
+  ): Promise<"CONTINUE" | "PAUSED"> {
+    return this.prisma.$transaction(async (tx) => {
+      const execution = await tx.execution.findUnique({
+        where: { id: executionId },
+        select: { budgetUsd: true, status: true, runnerId: true },
+      });
+      if (
+        !execution ||
+        execution.status !== ExecutionStatus.RUNNING ||
+        execution.runnerId !== runnerId
+      )
+        return "PAUSED";
+      if (execution.budgetUsd === null) return "CONTINUE";
+
+      const budgetUsd = Number(execution.budgetUsd);
+      const decision = evaluateBudget(budgetUsd, spentUsd);
+      if (decision === "PAUSE") {
+        const paused = await tx.execution.updateMany({
+          where: { id: executionId, status: ExecutionStatus.RUNNING, runnerId },
+          data: {
+            status: ExecutionStatus.PAUSED_BUDGET,
+            runnerId: null,
+            runnerLeaseUntil: null,
+          },
+        });
+        if (paused.count > 0) {
+          await tx.event.create({
+            data: {
+              executionId,
+              eventType: "EXECUTION_BUDGET_PAUSED",
+              source: EVENT_SOURCE,
+              payload: { budgetUsd, spentUsd },
+            },
+          });
+        }
+        return "PAUSED";
+      }
+
+      if (decision === "WARN") {
+        const warning = await tx.event.findFirst({
+          where: { executionId, eventType: "EXECUTION_BUDGET_WARNING" },
+          select: { id: true },
+        });
+        if (!warning) {
+          await tx.event.create({
+            data: {
+              executionId,
+              eventType: "EXECUTION_BUDGET_WARNING",
+              source: EVENT_SOURCE,
+              payload: { budgetUsd, spentUsd, thresholdPercent: 80 },
+            },
+          });
+        }
+      }
+      return "CONTINUE";
+    });
+  }
+
+  async approveBudget(executionId: string, newBudgetUsd: number): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const execution = await tx.execution.findUnique({
+        where: { id: executionId },
+        select: { budgetUsd: true },
+      });
+      if (
+        execution?.budgetUsd === null ||
+        !execution ||
+        newBudgetUsd <= Number(execution.budgetUsd)
+      )
+        return false;
+
+      const updated = await tx.execution.updateMany({
+        where: { id: executionId, status: ExecutionStatus.PAUSED_BUDGET },
+        data: { status: ExecutionStatus.RUNNING, budgetUsd: newBudgetUsd },
+      });
+      if (updated.count === 0) return false;
+      await tx.event.create({
+        data: {
+          executionId,
+          eventType: "EXECUTION_BUDGET_APPROVED",
+          source: EVENT_SOURCE,
+          payload: {
+            previousBudgetUsd: Number(execution.budgetUsd),
+            approvedBudgetUsd: newBudgetUsd,
+          },
+        },
+      });
+      return true;
+    });
   }
 
   async persistSessionEvent(event: OpenCodeSessionEvent): Promise<void> {

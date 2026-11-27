@@ -3,6 +3,7 @@ export const executionStatuses = [
   "PLANNING",
   "PLANNED",
   "RUNNING",
+  "PAUSED_BUDGET",
   "VALIDATING",
   "COMPLETED",
   "FAILED",
@@ -74,6 +75,10 @@ export interface CreateExecutionRequest {
   name?: string;
   requirement: string;
   budgetUsd?: number;
+}
+
+export interface ApproveExecutionBudgetRequest {
+  newBudgetUsd: number;
 }
 
 export type CostStatus = "REPORTED" | "ESTIMATED" | "UNAVAILABLE";

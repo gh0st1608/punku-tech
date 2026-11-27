@@ -29,6 +29,9 @@ import { ExecutionPlanningConflictError } from "../application/execution-plannin
 import { ExecutionPlanInvalidError } from "../application/execution-plan-invalid.error";
 import { OpenCodeUnavailableError } from "../../opencode/application/opencode-unavailable.error";
 import { ExecutionWorkspaceUnavailableError } from "../application/execution-workspace-unavailable.error";
+// Keep this as a runtime import so Nest's ValidationPipe receives the DTO class metadata.
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { ApproveBudgetDto } from "./dto/approve-budget.dto";
 
 type StreamRequest = Request<{ id: string }> & { eventCursor: EventCursor | null };
 
@@ -93,6 +96,20 @@ export class ExecutionsController {
   @Post(":id/cancel")
   cancel(@Param("id", new ParseUUIDPipe()) id: string) {
     return this.executions.cancel(id);
+  }
+
+  @Post(":id/approve-budget")
+  async approveBudget(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() body: ApproveBudgetDto,
+  ) {
+    try {
+      return await this.executions.approveBudget(id, body.newBudgetUsd);
+    } catch (error) {
+      if (error instanceof ExecutionPlanningConflictError)
+        throw new ConflictException(error.message);
+      throw error;
+    }
   }
 
   @Get(":id/events")

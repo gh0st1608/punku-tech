@@ -80,6 +80,12 @@ export interface ExecutionsRepository {
   ): Promise<void>;
   failExecutionIfActive(executionId: string, runnerId: string, finishedAt: Date): Promise<void>;
   listRunningExecutionIds(): Promise<string[]>;
+  enforceBudgetLimit(
+    executionId: string,
+    runnerId: string,
+    spentUsd: number,
+  ): Promise<"CONTINUE" | "PAUSED">;
+  approveBudget(executionId: string, newBudgetUsd: number): Promise<boolean>;
   persistSessionEvent(event: OpenCodeSessionEvent): Promise<void>;
   failPlanningIfActive(id: string, finishedAt: Date): Promise<void>;
   cancelIfActive(id: string, finishedAt: Date): Promise<CancellationResult | null>;
