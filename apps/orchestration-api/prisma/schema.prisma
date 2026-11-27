@@ -27,61 +27,89 @@ enum TaskStatus {
   CANCELLED
 }
 
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+}
+
+enum ProjectPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Project {
+  id          String          @id @default(uuid()) @db.Uuid
+  name        String
+  description String?         @db.Text
+  status      ProjectStatus   @default(PLANNING)
+  priority    ProjectPriority @default(MEDIUM)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@index([status, priority])
+  @@index([updatedAt])
+  @@map("projects")
+}
+
 model Execution {
-  id         String          @id @default(uuid()) @db.Uuid
-  name       String
-  requirement String         @db.Text
-  status     ExecutionStatus @default(CREATED)
-  budgetUsd  Decimal?        @db.Decimal(12, 6) @map("budget_usd")
-  workspacePath String?      @map("workspace_path") @db.Text
-  runnerId   String?         @map("runner_id")
-  runnerLeaseUntil DateTime? @map("runner_lease_until")
-  startedAt  DateTime?       @map("started_at")
-  finishedAt DateTime?       @map("finished_at")
-  createdAt  DateTime        @default(now()) @map("created_at")
-  tasks      Task[]
-  events     Event[]
-  usage      UsageRecord[]
+  id               String          @id @default(uuid()) @db.Uuid
+  name             String
+  requirement      String          @db.Text
+  status           ExecutionStatus @default(CREATED)
+  budgetUsd        Decimal?        @map("budget_usd") @db.Decimal(12, 6)
+  workspacePath    String?         @map("workspace_path") @db.Text
+  runnerId         String?         @map("runner_id")
+  runnerLeaseUntil DateTime?       @map("runner_lease_until")
+  startedAt        DateTime?       @map("started_at")
+  finishedAt       DateTime?       @map("finished_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  tasks            Task[]
+  events           Event[]
+  usage            UsageRecord[]
 
   @@index([status, runnerLeaseUntil])
   @@map("executions")
 }
 
 model Task {
-  id          String     @id @default(uuid()) @db.Uuid
-  executionId String     @db.Uuid @map("execution_id")
-  sequence    Int        @default(0)
-  agentId     String     @map("agent_id")
-  title       String
-  description String     @db.Text
-  acceptanceCriteria Json @default("[]") @map("acceptance_criteria_json")
-  status      TaskStatus @default(PENDING)
-  dependsOn   Json       @default("[]") @map("depends_on_json")
-  sessionId   String?    @map("session_id")
-  summary     String?    @db.Text
-  artifactPaths Json     @default("[]") @map("artifact_paths_json")
-  startedAt   DateTime?  @map("started_at")
-  finishedAt  DateTime?  @map("finished_at")
-  execution   Execution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  id                 String     @id @default(uuid()) @db.Uuid
+  executionId        String     @map("execution_id") @db.Uuid
+  sequence           Int        @default(0)
+  agentId            String     @map("agent_id")
+  title              String
+  description        String     @db.Text
+  acceptanceCriteria Json       @default("[]") @map("acceptance_criteria_json")
+  status             TaskStatus @default(PENDING)
+  dependsOn          Json       @default("[]") @map("depends_on_json")
+  sessionId          String?    @map("session_id")
+  summary            String?    @db.Text
+  artifactPaths      Json       @default("[]") @map("artifact_paths_json")
+  startedAt          DateTime?  @map("started_at")
+  finishedAt         DateTime?  @map("finished_at")
+  execution          Execution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
 
-  @@index([executionId, status])
   @@unique([executionId, sequence])
+  @@index([executionId, status])
   @@map("tasks")
 }
 
 model Event {
-  id            String    @id @default(uuid()) @db.Uuid
-  executionId   String    @db.Uuid @map("execution_id")
-  eventType     String    @map("event_type")
-  occurredAt    DateTime  @default(now()) @map("occurred_at")
-  source        String
-  agentId       String?   @map("agent_id")
-  taskId        String?   @db.Uuid @map("task_id")
-  sessionId     String?   @map("session_id")
-  externalEventId String? @unique @map("external_event_id")
-  payload       Json      @default("{}") @map("payload_json")
-  schemaVersion Int       @default(1) @map("schema_version")
-  execution     Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  id              String    @id @default(uuid()) @db.Uuid
+  executionId     String    @map("execution_id") @db.Uuid
+  eventType       String    @map("event_type")
+  occurredAt      DateTime  @default(now()) @map("occurred_at")
+  source          String
+  agentId         String?   @map("agent_id")
+  taskId          String?   @map("task_id") @db.Uuid
+  sessionId       String?   @map("session_id")
+  externalEventId String?   @unique @map("external_event_id")
+  payload         Json      @default("{}") @map("payload_json")
+  schemaVersion   Int       @default(1) @map("schema_version")
+  execution       Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
 
   @@index([executionId, occurredAt])
   @@index([sessionId])
@@ -90,8 +118,8 @@ model Event {
 
 model UsageRecord {
   id               String    @id @default(uuid()) @db.Uuid
-  executionId      String    @db.Uuid @map("execution_id")
-  taskId           String?   @db.Uuid @map("task_id")
+  executionId      String    @map("execution_id") @db.Uuid
+  taskId           String?   @map("task_id") @db.Uuid
   agentId          String?   @map("agent_id")
   sessionId        String    @map("session_id")
   messageId        String    @map("message_id")
@@ -102,8 +130,8 @@ model UsageRecord {
   reasoningTokens  Int?      @map("reasoning_tokens")
   cacheReadTokens  Int?      @map("cache_read_tokens")
   cacheWriteTokens Int?      @map("cache_write_tokens")
-  reportedCostUsd  Decimal?  @db.Decimal(12, 8) @map("reported_cost_usd")
-  estimatedCostUsd Decimal?  @db.Decimal(12, 8) @map("estimated_cost_usd")
+  reportedCostUsd  Decimal?  @map("reported_cost_usd") @db.Decimal(12, 8)
+  estimatedCostUsd Decimal?  @map("estimated_cost_usd") @db.Decimal(12, 8)
   costStatus       String    @default("UNAVAILABLE") @map("cost_status")
   rateVersion      String?   @map("rate_version")
   recordedAt       DateTime  @default(now()) @map("recorded_at")
