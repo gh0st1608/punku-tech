@@ -537,21 +537,55 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
     });
     if (!task) return;
 
-    await this.prisma.event.createMany({
-      data: [
-        {
-          executionId: task.executionId,
-          eventType: event.type,
-          occurredAt: event.createdAt,
-          source: "opencode",
-          agentId: task.agentId,
-          taskId: task.id,
-          sessionId: event.sessionId,
-          externalEventId: event.id,
-          payload: {},
-        },
-      ],
-      skipDuplicates: true,
+    await this.prisma.$transaction(async (tx) => {
+      await tx.event.createMany({
+        data: [
+          {
+            executionId: task.executionId,
+            eventType: event.type,
+            occurredAt: event.createdAt,
+            source: "opencode",
+            agentId: task.agentId,
+            taskId: task.id,
+            sessionId: event.sessionId,
+            externalEventId: event.id,
+            payload: {},
+          },
+        ],
+        skipDuplicates: true,
+      });
+
+      if (!event.usage) return;
+      const costStatus =
+        event.usage.reportedCostUsd !== null
+          ? "REPORTED"
+          : event.usage.estimatedCostUsd !== null
+            ? "ESTIMATED"
+            : "UNAVAILABLE";
+      await tx.usageRecord.createMany({
+        data: [
+          {
+            executionId: task.executionId,
+            taskId: task.id,
+            agentId: task.agentId,
+            sessionId: event.sessionId,
+            messageId: event.usage.messageId,
+            provider: event.usage.provider,
+            model: event.usage.model,
+            inputTokens: event.usage.inputTokens,
+            outputTokens: event.usage.outputTokens,
+            reasoningTokens: event.usage.reasoningTokens,
+            cacheReadTokens: event.usage.cacheReadTokens,
+            cacheWriteTokens: event.usage.cacheWriteTokens,
+            reportedCostUsd: event.usage.reportedCostUsd,
+            estimatedCostUsd: event.usage.estimatedCostUsd,
+            costStatus,
+            rateVersion: event.usage.rateVersion,
+            recordedAt: event.createdAt,
+          },
+        ],
+        skipDuplicates: true,
+      });
     });
   }
 
@@ -660,8 +694,17 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
   }
 
   async listUsage(id: string): Promise<UsageRecordForSummary[]> {
-    const rows = await this.prisma.usageRecord.findMany({ where: { executionId: id } });
+    const rows = await this.prisma.usageRecord.findMany({
+      where: { executionId: id },
+      orderBy: [{ recordedAt: "asc" }, { messageId: "asc" }],
+    });
     return rows.map((row) => ({
+      messageId: row.messageId,
+      taskId: row.taskId,
+      agentId: row.agentId,
+      provider: row.provider,
+      model: row.model,
+      recordedAt: row.recordedAt.toISOString(),
       inputTokens: row.inputTokens,
       outputTokens: row.outputTokens,
       reasoningTokens: row.reasoningTokens,
@@ -669,6 +712,8 @@ export class PrismaExecutionsRepository implements ExecutionsRepository {
       cacheWriteTokens: row.cacheWriteTokens,
       reportedCostUsd: row.reportedCostUsd === null ? null : Number(row.reportedCostUsd),
       estimatedCostUsd: row.estimatedCostUsd === null ? null : Number(row.estimatedCostUsd),
+      costStatus: row.costStatus as UsageRecordForSummary["costStatus"],
+      rateVersion: row.rateVersion,
     }));
   }
 }

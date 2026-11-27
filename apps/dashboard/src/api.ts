@@ -1,4 +1,10 @@
-import type { DomainEvent, ExecutionDetails, ExecutionRecord, TaskDetails } from "@aief/contracts";
+import type {
+  DomainEvent,
+  ExecutionDetails,
+  ExecutionRecord,
+  TaskDetails,
+  UsageSummary,
+} from "@aief/contracts";
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000/api").replace(
   /\/$/,
@@ -25,6 +31,10 @@ export function getExecution(id: string, signal?: AbortSignal): Promise<Executio
 
 export function listEvents(id: string, signal?: AbortSignal): Promise<DomainEvent[]> {
   return request(`/executions/${encodeURIComponent(id)}/events`, signal);
+}
+
+export function getUsage(id: string, signal?: AbortSignal): Promise<UsageSummary> {
+  return request(`/executions/${encodeURIComponent(id)}/usage`, signal);
 }
 
 export function getTaskDetails(

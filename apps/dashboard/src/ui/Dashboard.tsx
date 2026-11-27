@@ -5,11 +5,14 @@ import type {
   ExecutionRecord,
   TaskDetails,
   TaskRecord,
+  UsageBreakdown,
+  UsageSummary,
 } from "@aief/contracts";
 import {
   createExecutionEventSource,
   getExecution,
   getTaskDetails,
+  getUsage,
   listEvents,
   listExecutions,
 } from "../api";
@@ -137,6 +140,162 @@ function statusLabel(status: string): string {
   return executionStatusNames[status] ?? taskStatusNames[status] ?? status;
 }
 
+function formatTokens(value: number | null): string {
+  return value === null ? "—" : new Intl.NumberFormat("es-PE").format(value);
+}
+
+function formatUsd(value: number | null): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 8,
+  }).format(value);
+}
+
+function costStatusLabel(status: string): string {
+  return status === "MIXED" ? "MIXTO" : status;
+}
+
+function UsagePanel({ usage }: { usage: UsageSummary | null }) {
+  const [dimension, setDimension] = useState<"agent" | "task" | "model">("agent");
+  const dimensions = {
+    agent: { label: "Agente", rows: usage?.byAgent ?? [] },
+    task: { label: "Tarea", rows: usage?.byTask ?? [] },
+    model: { label: "Modelo", rows: usage?.byModel ?? [] },
+  };
+  const activeDimension = dimensions[dimension];
+
+  return (
+    <section className="usage-panel" aria-label="Uso y costos">
+      <div className="usage-heading">
+        <div>
+          <span className="section-kicker">FINOPS</span>
+          <h2>Uso y costos</h2>
+        </div>
+        <span className="usage-turns">{usage ? `${usage.turns} turnos` : "Cargando"}</span>
+      </div>
+      {usage ? (
+        <>
+          <div className="usage-token-grid">
+            <UsageMetric label="INPUT" value={usage.inputTokens} />
+            <UsageMetric label="OUTPUT" value={usage.outputTokens} />
+            <UsageMetric label="RAZONAMIENTO" value={usage.reasoningTokens} />
+            <UsageMetric label="CACHE LECTURA" value={usage.cacheReadTokens} />
+            <UsageMetric label="CACHE ESCRITURA" value={usage.cacheWriteTokens} />
+          </div>
+          <div className="usage-cost-grid">
+            <div className="usage-cost-card reported">
+              <span>COSTO REPORTADO</span>
+              <strong>{formatUsd(usage.reportedCostUsd)}</strong>
+              <small>REPORTED · {usage.reportedCostTurns} turnos</small>
+            </div>
+            <div className="usage-cost-card estimated">
+              <span>COSTO ESTIMADO</span>
+              <strong>{formatUsd(usage.estimatedCostUsd)}</strong>
+              <small>ESTIMATED · {usage.estimatedCostTurns} turnos</small>
+            </div>
+            <div className="usage-cost-card unavailable">
+              <span>SIN COSTO</span>
+              <strong>{usage.unavailableCostTurns}</strong>
+              <small>UNAVAILABLE · turnos sin tarifa</small>
+            </div>
+          </div>
+          <div className="usage-breakdown-heading">
+            <div>
+              <strong>Desglose</strong>
+              <span>
+                {usage.tokenAvailability} · costo {costStatusLabel(usage.costStatus)}
+              </span>
+            </div>
+            <div className="usage-tabs" role="tablist" aria-label="Dimensión del desglose">
+              {Object.entries(dimensions).map(([key, item]) => (
+                <button
+                  aria-selected={dimension === key}
+                  className={dimension === key ? "active" : ""}
+                  key={key}
+                  onClick={() => setDimension(key as typeof dimension)}
+                  role="tab"
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {activeDimension.rows.length ? (
+            <div className="usage-table-wrap">
+              <table className="usage-table">
+                <thead>
+                  <tr>
+                    <th>{activeDimension.label}</th>
+                    <th>Turnos</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Razon.</th>
+                    <th>Cache lee</th>
+                    <th>Cache escribe</th>
+                    <th>Reportado</th>
+                    <th>Estimado</th>
+                    <th>Sin tarifa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeDimension.rows.map((row) => (
+                    <UsageBreakdownRow dimension={dimension} key={row.key} row={row} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="usage-empty">
+              El proveedor todavía no reporta datos de uso para esta ejecución.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="usage-empty">Cargando uso por turno…</p>
+      )}
+    </section>
+  );
+}
+
+function UsageMetric({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className="usage-token-card">
+      <span>{label}</span>
+      <strong>{formatTokens(value)}</strong>
+    </div>
+  );
+}
+
+function UsageBreakdownRow({ row, dimension }: { row: UsageBreakdown; dimension: string }) {
+  return (
+    <tr>
+      <td>
+        <strong>{row.label}</strong>
+        {dimension === "model" && (
+          <small>
+            {row.rateVersions.length
+              ? `Tarifa ${row.rateVersions.join(", ")}`
+              : "Sin tarifa configurada"}
+          </small>
+        )}
+      </td>
+      <td>{row.turns}</td>
+      <td>{formatTokens(row.inputTokens)}</td>
+      <td>{formatTokens(row.outputTokens)}</td>
+      <td>{formatTokens(row.reasoningTokens)}</td>
+      <td>{formatTokens(row.cacheReadTokens)}</td>
+      <td>{formatTokens(row.cacheWriteTokens)}</td>
+      <td>{formatUsd(row.reportedCostUsd)}</td>
+      <td>{formatUsd(row.estimatedCostUsd)}</td>
+      <td>{row.unavailableCostTurns}</td>
+    </tr>
+  );
+}
+
 function agentTasks(agent: AgentDefinition, tasks: TaskRecord[]): TaskRecord[] {
   return tasks.filter((task) => task.agentId === agent.id).sort((a, b) => a.sequence - b.sequence);
 }
@@ -208,6 +367,7 @@ function useExecutionSnapshot({
 }: ExecutionSnapshotOptions) {
   const [details, setDetails] = useState<ExecutionDetails | null>(null);
   const [events, setEvents] = useState<DomainEvent[]>([]);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [connection, setConnection] = useState<"connecting" | "live" | "offline">("connecting");
   const selectedTaskIdRef = useRef(selectedTaskId);
 
@@ -216,12 +376,14 @@ function useExecutionSnapshot({
   }, [selectedTaskId]);
 
   const refreshSnapshot = useCallback(async (id: string, signal?: AbortSignal) => {
-    const [nextDetails, nextEvents] = await Promise.all([
+    const [nextDetails, nextEvents, nextUsage] = await Promise.all([
       getExecution(id, signal),
       listEvents(id, signal),
+      getUsage(id, signal),
     ]);
     setDetails(nextDetails);
     setEvents((current) => mergeEvents(current, nextEvents));
+    setUsage(nextUsage);
     return nextDetails;
   }, []);
 
@@ -229,11 +391,13 @@ function useExecutionSnapshot({
     if (!activeId) {
       setDetails(null);
       setEvents([]);
+      setUsage(null);
       return;
     }
     const controller = new AbortController();
     setDetails(null);
     setEvents([]);
+    setUsage(null);
     setConnection("connecting");
     refreshSnapshot(activeId, controller.signal)
       .then((next) => {
@@ -275,6 +439,11 @@ function useExecutionSnapshot({
               .catch(() => undefined);
           }
         }
+        if (event.eventType === "session.step.ended" || event.eventType === "session.step.failed") {
+          void getUsage(activeId)
+            .then(setUsage)
+            .catch(() => setConnection("offline"));
+        }
       } catch {
         setError("Se recibió un evento con formato no válido.");
       }
@@ -283,7 +452,7 @@ function useExecutionSnapshot({
     return () => source.close();
   }, [activeId, refreshSnapshot, setExecutions, setError]);
 
-  return { details, events, connection, setConnection, refreshSnapshot };
+  return { details, events, usage, connection, setConnection, refreshSnapshot };
 }
 
 function useTaskSelection(activeId: string, setError: (message: string) => void) {
@@ -512,6 +681,8 @@ export function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                <UsagePanel usage={snapshot.usage} />
 
                 <div className="section-heading">
                   <div>

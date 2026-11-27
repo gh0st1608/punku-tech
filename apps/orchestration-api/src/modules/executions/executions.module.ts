@@ -21,9 +21,12 @@ import { OpenCodeSessionEventConsumer } from "./application/opencode-session-eve
     PrismaExecutionsRepository,
     {
       provide: OpenCodeSessionEventConsumer,
-      useFactory: (repository: ExecutionsRepository, openCode: OpenCodeGateway) =>
-        new OpenCodeSessionEventConsumer(repository, openCode),
-      inject: [EXECUTIONS_REPOSITORY, OPENCODE_GATEWAY],
+      useFactory: (
+        repository: ExecutionsRepository,
+        openCode: OpenCodeGateway,
+        environment: AppEnvironment,
+      ) => new OpenCodeSessionEventConsumer(repository, openCode, environment.modelTariffs),
+      inject: [EXECUTIONS_REPOSITORY, OPENCODE_GATEWAY, APP_ENVIRONMENT],
     },
     {
       provide: GitWorktreeManager,

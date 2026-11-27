@@ -78,12 +78,13 @@ La ruta de eventos devuelve el campo `eventId` del contrato compartido; eventos 
 
 El stream refleja eventos persistidos en PostgreSQL; todavía no retransmite la actividad de sesiones OpenCode en tiempo real.
 
+Los eventos `session.step.ended` y `session.step.failed` registran como máximo un uso por `sessionId` y `messageId`, con tokens de entrada, salida, razonamiento y caché. Se conserva el costo que reporta OpenCode como `REPORTED`. Para estimar costos, configura `MODEL_TARIFFS_JSON` con tarifas oficiales por proveedor, modelo y versión, expresadas en USD por millón de tokens para cada categoría. No hay tarifas incluidas por defecto; si falta el modelo, la tarifa o algún dato de tokens, el costo estimado queda `UNAVAILABLE`. El endpoint `GET /api/executions/:id/usage` devuelve overview y desgloses por agente, tarea y modelo, sin duplicar mensajes.
+
 `GET /api/executions/:id/tasks/:taskId` devuelve el detalle de una tarea con sus eventos, el resumen final del agente y las rutas de archivos modificados. El resumen se limita a 4000 caracteres y aplica redacción de patrones habituales de credenciales; no se guardan mensajes de herramientas ni parches. Las rutas se guardan únicamente como paths relativos y se descartan rutas absolutas y nombres de archivos sensibles conocidos. Esta redacción es una defensa adicional y no reemplaza las reglas para que los agentes nunca escriban secretos en sus respuestas.
 
 ## Próximos cortes
 
-1. Mostrar en el dashboard los resúmenes y entregables disponibles por tarea.
-2. Ingerir usage por turno y tarifas versionadas; etiquetar cada cifra como `REPORTED`, `ESTIMATED` o `UNAVAILABLE`.
-3. Generar el CRUD Project/Task, ejecutar QA automatizado y guardar evidencia del Quality Gate.
+1. Generar el CRUD Project/Task.
+2. Ejecutar QA automatizado y guardar evidencia del Quality Gate.
 
 El documento de backlog es una referencia de alcance. El proveedor y los modelos siguen pendientes de selección; por eso el scaffold no inventa tarifas ni configura credenciales.
