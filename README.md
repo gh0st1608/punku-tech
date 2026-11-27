@@ -35,6 +35,8 @@ En otra terminal, inicia el dashboard local con `npm run dev:web` y abre `http:/
 
 Configura `OPENCODE_BASE_URL`, `OPENCODE_REQUIRED_VERSION`, `OPENCODE_WORKSPACE_ROOT`, `OPENCODE_WORKTREE_ROOT` y `OPENCODE_PASSWORD` en `.env`. Ejecuta OpenCode `2.4.2` con `opencode serve --hostname 127.0.0.1 --port 4096`, usando el mismo password y una carpeta visible desde ambos procesos. El workspace debe ser un repositorio Git. El directorio de worktrees usa por defecto una carpeta hermana llamada `.aief-worktrees`. El adapter usa Basic Auth con el usuario fijo `opencode`; no registra la contraseña.
 
+`npm run db:generate` y `npm run db:migrate` cargan la configuración desde el `.env` de la raíz del repositorio. Para una demo mínima de gestión de proyectos basta con PostgreSQL, API y dashboard; planificar o ejecutar trabajo con agentes requiere OpenCode `2.4.2` y un proveedor/modelo configurado. Sin OpenCode, la API puede iniciar y mostrar `unavailable` en `/api/runtime/health`.
+
 La API escucha solo en `127.0.0.1:3000/api`, y PostgreSQL publica su puerto solo en la interfaz local. El esquema de base de datos se encuentra en `apps/orchestration-api/prisma/schema.prisma`.
 
 ## Calidad de código
@@ -53,6 +55,8 @@ npm run quality-gate
 ```
 
 `quality` revisa formato, lint y tipos. `test:api` ejecuta Jest/Supertest; `test:e2e` ejecuta el flujo del dashboard con Playwright. `quality-gate` ejecuta las verificaciones y genera `artifacts/qa/quality-gate-summary.json` y `.md`, logs, resultados Jest y reportes Playwright. También revisa dependencias de producción y que no haya archivos `.env` reales o credenciales de alta confianza entre los archivos rastreados. El workflow de GitHub sube estas evidencias como artefactos en cada PR a `develop` o `main`.
+
+La auditoría de producción usa `npm audit --omit=dev --omit=optional`; excluye dependencias de desarrollo y opcionales.
 
 Para añadir costo y entregables de una ejecución al resumen, configura `AIEF_EXECUTION_ID` y `AIEF_API_BASE_URL` antes de ejecutar `quality-gate`. Sin un ID, ambos campos quedan identificados como `NOT_RUN`. Las reglas de complejidad empiezan como advertencias para que el equipo pueda refactorizar de forma gradual sin ocultar los errores de lint.
 

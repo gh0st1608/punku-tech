@@ -1,13 +1,15 @@
 import { ValidationPipe } from "@nestjs/common";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import type { ExecutionRecord } from "@aief/contracts";
+import type { ExecutionRecord, ProjectRecord } from "@aief/contracts";
 import { ExecutionsService } from "../src/modules/executions/application/executions.service";
 import { EXECUTIONS_REPOSITORY } from "../src/modules/executions/application/executions.repository";
 import { ExecutionsController } from "../src/modules/executions/presentation/executions.controller";
 import type { OpenCodeGateway } from "../src/modules/opencode/application/opencode.gateway";
 import { OPENCODE_GATEWAY } from "../src/modules/opencode/application/opencode.gateway";
 import { OpenCodeController } from "../src/modules/opencode/presentation/opencode.controller";
+import { ProjectsService } from "../src/modules/projects/application/projects.service";
+import { ProjectsController } from "../src/modules/projects/presentation/projects.controller";
 import request from "supertest";
 
 describe("OpenCode REST API", () => {
@@ -20,13 +22,17 @@ describe("OpenCode REST API", () => {
   const executions = {
     create: jest.fn(),
   } as unknown as ExecutionsService;
+  const projects = {
+    create: jest.fn(),
+  } as unknown as ProjectsService;
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
-      controllers: [OpenCodeController, ExecutionsController],
+      controllers: [OpenCodeController, ExecutionsController, ProjectsController],
       providers: [
         { provide: OPENCODE_GATEWAY, useValue: gateway },
         { provide: ExecutionsService, useValue: executions },
+        { provide: ProjectsService, useValue: projects },
         {
           provide: EXECUTIONS_REPOSITORY,
           useValue: { exists: jest.fn(), findEventCursor: jest.fn() },
@@ -128,5 +134,41 @@ describe("OpenCode REST API", () => {
       .expect(400);
 
     expect(executions.create).not.toHaveBeenCalled();
+  });
+
+  it("creates a project with the required fields and rejects additional fields", async () => {
+    const project: ProjectRecord = {
+      id: "006b5407-9919-4c36-8eab-1c65d70ad6ce",
+      name: "Demo mínimo",
+      description: "Proyecto local para validar el flujo del dashboard.",
+      status: "ACTIVE",
+      priority: "HIGH",
+      createdAt: "2026-11-27T10:00:00.000Z",
+      updatedAt: "2026-11-27T10:00:00.000Z",
+    };
+    jest.mocked(projects.create).mockResolvedValue(project);
+
+    await request(app.getHttpServer())
+      .post("/api/projects")
+      .send({
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        priority: project.priority,
+      })
+      .expect(201, project);
+
+    await request(app.getHttpServer())
+      .post("/api/projects")
+      .send({ name: project.name, unexpected: true })
+      .expect(400);
+
+    expect(projects.create).toHaveBeenCalledTimes(1);
+    expect(projects.create).toHaveBeenCalledWith({
+      name: project.name,
+      description: project.description,
+      status: project.status,
+      priority: project.priority,
+    });
   });
 });

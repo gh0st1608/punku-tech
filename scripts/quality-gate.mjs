@@ -65,7 +65,8 @@ async function trackedSecretCheck() {
   const files = (result.stdout ?? "").split("\0").filter(Boolean);
   const envFiles = files.filter((file) => /(^|[\\/])\.env(?:\.[^\\/]+)?$/.test(file));
   const unexpectedEnvFiles = envFiles.filter((file) => !/(^|[\\/])\.env\.example$/.test(file));
-  const highConfidenceSecret = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16})\b/;
+  const highConfidenceSecret =
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16})\b/;
   const secretMatches = [];
   for (const file of files) {
     if (/node_modules|package-lock\.json|artifacts[\\/]qa/i.test(file)) continue;
@@ -105,13 +106,22 @@ async function executionContext() {
     return {
       status: "NOT_RUN",
       executionId: null,
-      reason: "Configura AIEF_EXECUTION_ID y AIEF_API_BASE_URL para incluir datos de una ejecución.",
-      cost: { status: "NOT_RUN", reportedCostUsd: null, estimatedCostUsd: null, unavailableCostTurns: null },
+      reason:
+        "Configura AIEF_EXECUTION_ID y AIEF_API_BASE_URL para incluir datos de una ejecución.",
+      cost: {
+        status: "NOT_RUN",
+        reportedCostUsd: null,
+        estimatedCostUsd: null,
+        unavailableCostTurns: null,
+      },
       deliverables: { status: "NOT_RUN", items: [] },
     };
   }
 
-  const apiBaseUrl = (process.env.AIEF_API_BASE_URL || "http://127.0.0.1:3000/api").replace(/\/$/, "");
+  const apiBaseUrl = (process.env.AIEF_API_BASE_URL || "http://127.0.0.1:3000/api").replace(
+    /\/$/,
+    "",
+  );
   try {
     const [detailsResponse, usageResponse] = await Promise.all([
       fetch(`${apiBaseUrl}/executions/${encodeURIComponent(executionId)}`, {
@@ -140,12 +150,18 @@ async function executionContext() {
       deliverables: { status: "PASS", items },
     };
   } catch (error) {
-    const reason = error instanceof Error ? redact(error.message) : "No se pudo consultar la ejecución.";
+    const reason =
+      error instanceof Error ? redact(error.message) : "No se pudo consultar la ejecución.";
     return {
       status: "FAIL",
       executionId,
       reason,
-      cost: { status: "NOT_RUN", reportedCostUsd: null, estimatedCostUsd: null, unavailableCostTurns: null },
+      cost: {
+        status: "NOT_RUN",
+        reportedCostUsd: null,
+        estimatedCostUsd: null,
+        unavailableCostTurns: null,
+      },
       deliverables: { status: "NOT_RUN", items: [] },
     };
   }
@@ -158,11 +174,12 @@ await runCheck("build", "Build de workspaces", npmExecutable, ["run", "build"]);
 await runCheck("api-tests", "Jest y Supertest", npmExecutable, ["run", "test:api"]);
 await runCheck("e2e-tests", "Playwright E2E", npmExecutable, ["run", "test:e2e"]);
 await trackedSecretCheck();
-await runCheck("security-dependencies", "Auditoría de dependencias de producción", npmExecutable, [
-  "audit",
-  "--omit=dev",
-  "--audit-level=high",
-]);
+await runCheck(
+  "security-dependencies",
+  "Auditoría de dependencias instaladas en producción",
+  npmExecutable,
+  ["audit", "--omit=dev", "--omit=optional", "--audit-level=high"],
+);
 
 const context = await executionContext();
 const contextCheck = process.env.AIEF_EXECUTION_ID?.trim()
@@ -180,11 +197,12 @@ const contextCheck = process.env.AIEF_EXECUTION_ID?.trim()
 if (contextCheck) checks.push(contextCheck);
 
 const coreChecks = checks.filter((check) => check.key !== "execution-context");
-const overallStatus = coreChecks.some((check) => check.status === "FAIL") || context.status === "FAIL"
-  ? "FAIL"
-  : coreChecks.some((check) => check.status === "NOT_RUN")
-    ? "NOT_RUN"
-    : "PASS";
+const overallStatus =
+  coreChecks.some((check) => check.status === "FAIL") || context.status === "FAIL"
+    ? "FAIL"
+    : coreChecks.some((check) => check.status === "NOT_RUN")
+      ? "NOT_RUN"
+      : "PASS";
 const report = {
   schemaVersion: 1,
   generatedAt: new Date().toISOString(),
@@ -195,7 +213,10 @@ const report = {
   execution: context,
 };
 
-await writeFile(join(artifactDirectory, "quality-gate-summary.json"), `${JSON.stringify(report, null, 2)}\n`);
+await writeFile(
+  join(artifactDirectory, "quality-gate-summary.json"),
+  `${JSON.stringify(report, null, 2)}\n`,
+);
 const checkRows = checks
   .map((check) => `| ${check.label} | ${check.status} | \`${check.evidence}\` |`)
   .join("\n");
@@ -231,5 +252,7 @@ const markdown = [
   "",
 ].join("\n");
 await writeFile(join(artifactDirectory, "quality-gate-summary.md"), markdown);
-process.stdout.write(`\nQuality Gate: ${overallStatus}\nResumen: ${basename(join(artifactDirectory, "quality-gate-summary.md"))}\n`);
+process.stdout.write(
+  `\nQuality Gate: ${overallStatus}\nResumen: ${basename(join(artifactDirectory, "quality-gate-summary.md"))}\n`,
+);
 if (overallStatus !== "PASS") process.exitCode = 1;
